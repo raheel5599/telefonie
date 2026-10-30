@@ -17,9 +17,9 @@ socket.on('data',chunk=>{
   data='';state='login';socket.write('Action: Login\r\nUsername: '+user+'\r\nSecret: '+secret+'\r\nEvents: off\r\n\r\n');
  }else if(state==='login'&&data.includes('\r\n\r\n')){
   if(!data.includes('Response: Success'))return finish(false,'authentication rejected');
-  data='';state='status';socket.write('Action: CoreStatus\r\n\r\n');
+  data='';state='status';socket.write('Action: Ping\r\n\r\n');
  }else if(state==='status'&&data.includes('\r\n\r\n')){
-  if(!data.includes('Response: Success')){const msg=/^Message:\s*(.+)$/mi.exec(data)?.[1]||'No message';return finish(false,'CoreStatus rejected: '+msg.slice(0,160));}
-  finish(true,'CoreStatus granted; connection from web container works');
+  if(!data.includes('Response: Success')){const msg=/^Message:\s*(.+)$/mi.exec(data)?.[1]||'No message';return finish(false,'Ping rejected: '+msg.slice(0,160));}
+  finish(true,'Ping granted; connection from web container works');
  }
 });
