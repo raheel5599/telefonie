@@ -80,6 +80,10 @@ http.createServer(async(req,res)=>{
   res.setHeader('Set-Cookie','telefonie_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
   return respond(res,200,{ok:true});
  }
+ if(pathname==='/api/pbx/status'&&req.method==='GET'){
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  return respond(res,200,{engine:'Asterisk 22',monitoring:'not-connected',telekomSip:'not-configured',friedbergRoute:'not-configured',sipRegistrations:[],note:'Asterisk wird derzeit nicht durch die Web-API überwacht. Keine Live-Anrufe aktiv.'});
+ }
  if(pathname==='/api/numbers'){
   if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
