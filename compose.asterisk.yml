@@ -1,0 +1,19 @@
+# Isolierte PBX, keine SIP-/RTP-Freigaben und keine Telekom-Zugangsdaten.
+services:
+  asterisk:
+    image: andrius/asterisk:22.10.1_debian-trixie
+    container_name: tariq-telefonie-asterisk
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.50
+    pids_limit: 128
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - asterisk_state:/var/lib/asterisk
+
+volumes:
+  asterisk_state:
