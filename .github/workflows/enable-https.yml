@@ -1,0 +1,47 @@
+name: TARIQ Telefonie · HTTPS einmalig aktivieren
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/enable-https.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telefonie-https-caddy
+  cancel-in-progress: false
+
+jobs:
+  enable-https:
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH vorbereiten
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          test -n "$SSH_KEY"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "167.233.32.243 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEADJodfCjGq6bZaB1vjOJ7z4va3a+LmWE7p53NRF2KP" > ~/.ssh/known_hosts
+      - name: Website über Caddy mit HTTPS aktivieren
+        run: |
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes deployment/configure-caddy.py fpadmin@167.233.32.243:/home/fpadmin/apps/telefonie/deployment/configure-caddy.py
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 'python3 /home/fpadmin/apps/telefonie/deployment/configure-caddy.py'
+      - name: Öffentliches HTTPS testen
+        run: |
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if curl --fail --silent --show-error --max-time 8 https://telefonie.tariq-itconsulting.de/api/session | grep -q 'authenticated'; then
+              echo "HTTPS und Admin-Session-Endpunkt erreichbar"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "HTTPS noch nicht erfolgreich erreichbar; DNS, Zertifikat oder Caddy-Logs prüfen"
+          exit 1
