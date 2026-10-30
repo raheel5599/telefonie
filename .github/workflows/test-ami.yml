@@ -58,3 +58,20 @@ jobs:
             hostip=$(getent ahostsv4 tel.t-online.de | awk "NR==1 {print \$1}")
             if test -n "$hostip"; then ip -4 route get "$hostip" || true; fi
           '
+
+      - name: WireGuard Peer Reachability (read only)
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
+            echo "=== WG PEER (redacted keys) ==="
+            sudo -n wg show wg-friedberg latest-handshakes 2>/dev/null | awk "{print \$2}" || true
+            echo "=== WG TRANSFER (no keys) ==="
+            sudo -n wg show wg-friedberg transfer 2>/dev/null | awk "{print \$2,\$3}" || true
+            echo "=== WG PEER PING ==="
+            ping -c 2 -W 2 192.168.2.1 || true
+            echo "=== UNIFI LAN PING ==="
+            ping -c 2 -W 2 192.168.20.1 || true
+            echo "=== FORWARDING MODE ==="
+            sysctl -n net.ipv4.ip_forward || true
+            echo "=== DNS SRV TO TELEKOM ==="
+            if command -v dig >/dev/null 2>&1; then dig +time=2 +tries=1 +short SRV _sip._udp.tel.t-online.de; else echo dig-not-available; fi
+          '
