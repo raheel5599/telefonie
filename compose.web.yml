@@ -1,0 +1,19 @@
+services:
+  telefonie-web:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./:/app:ro
+    command: ["node","server.mjs"]
+    restart: unless-stopped
+    mem_limit: 128m
+    pids_limit: 80
+    ports:
+      - "127.0.0.1:3095:3095"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - telefonie_web
+networks:
+  telefonie_web:
+    driver: bridge
