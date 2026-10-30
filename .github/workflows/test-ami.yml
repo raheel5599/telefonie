@@ -1,0 +1,41 @@
+name: Telefonie AMI Funktionstest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/test-ami.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-ami:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH bereitstellen
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          test -n "$SSH_KEY"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "167.233.32.243 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEADJodfCjGq6bZaB1vjOJ7z4va3a+LmWE7p53NRF2KP" > ~/.ssh/known_hosts
+      - name: AMI Diagnose auf Hetzner
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
+            set -eu
+            echo "=== PBX STATUS ==="
+            docker inspect tariq-telefonie-asterisk --format "State={{.State.Status}} Restarts={{.RestartCount}}"
+            echo "=== AMI SETTINGS ==="
+            docker exec -u asterisk -w / tariq-telefonie-asterisk asterisk -rx "manager show settings" | grep -E "Manager \(AMI\)|TCP Bindaddress|Web Manager"
+            echo "=== WEB STATUS ==="
+            docker inspect tariq-telefonie-telefonie-web-1 --format "State={{.State.Status}}"
+            echo "=== AMI FROM WEB CONTAINER ==="
+            docker exec tariq-telefonie-telefonie-web-1 node /app/deployment/check-ami.mjs
+          '
