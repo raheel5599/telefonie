@@ -48,7 +48,7 @@ jobs:
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 "mkdir -p /home/fpadmin/apps/telefonie"
           rsync -az --delete \
             --exclude='.git/' --exclude='.github/' --exclude='*.env' \
-            --exclude='data/' --exclude='logs/' \
+            --exclude='data/' --exclude='logs/' --exclude='private/' \
             -e "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes" \
             ./ fpadmin@167.233.32.243:/home/fpadmin/apps/telefonie/
 
