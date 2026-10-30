@@ -75,3 +75,18 @@ jobs:
             echo "=== DNS SRV TO TELEKOM ==="
             if command -v dig >/dev/null 2>&1; then dig +time=2 +tries=1 +short SRV _sip._udp.tel.t-online.de; else echo dig-not-available; fi
           '
+
+      - name: Asterisk Netzpfad analysieren (nur lesend)
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
+            echo "=== PBX NETWORKS ==="
+            docker inspect tariq-telefonie-asterisk --format "{{range \$k,\$v := .NetworkSettings.Networks}}{{printf \"%s \" \$k}}{{end}}"
+            echo "=== PBX NETWORK ISOLATION ==="
+            docker network inspect tariq-telefonie-pbx_pbx_private --format "Internal={{.Internal}} Driver={{.Driver}}" || true
+            echo "=== PBX ROUTES ==="
+            docker exec -u asterisk -w / tariq-telefonie-asterisk sh -c "cat /proc/net/route" || true
+            echo "=== HOST POLICY RULES ==="
+            ip -4 rule show
+            echo "=== HOST FORWARD RULES (read only) ==="
+            ip -4 route get 192.168.2.1
+          '
