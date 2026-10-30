@@ -19,6 +19,35 @@ function readNumbers(){try{const data=JSON.parse(fs.readFileSync(numbersPath,'ut
 function writeNumbers(numbers){const temp=numbersPath+'.'+process.pid+'.tmp';fs.writeFileSync(temp,JSON.stringify(numbers,null,2),{mode:0o600});fs.renameSync(temp,numbersPath)}
 function normalizeE164(raw){const value=String(raw||'').trim().replace(/[()\s/.-]/g,'');let number=value.startsWith('00')?'+'+value.slice(2):value;if(/^0[1-9]\d+$/.test(number))number='+49'+number.slice(1);if(!/^\+[1-9]\d{6,14}$/.test(number))throw Error('Bitte eine gültige internationale Rufnummer eingeben, z. B. +496031123456.');return number}
 
+
+async function readAmiStatus(){
+ const config=fs.readFileSync(process.env.AMI_CONFIG||'/run/secrets/ami.conf','utf8');
+ const user=/^\[([^\]]+)\]/gm;const names=[...config.matchAll(user)].map(x=>x[1]);const username=names.find(x=>x!=='general');
+ const secret=/^secret\s*=\s*(\S+)/m.exec(config)?.[1];
+ if(!username||!secret)throw Error('AMI credentials missing');
+ return new Promise((resolve,reject)=>{
+  const client=net.createConnection({host:process.env.AMI_HOST||'tariq-telefonie-asterisk',port:5038});
+  let buffer='',stage=0,done=false;
+  const finish=(err,data)=>{if(done)return;done=true;client.destroy();err?reject(err):resolve(data)};
+  client.setTimeout(4500,()=>finish(Error('AMI timeout')));
+  client.on('error',err=>finish(err));
+  client.on('data',chunk=>{
+   buffer+=chunk.toString('utf8');
+   if(buffer.length>16000)return finish(Error('AMI response too large'));
+   if(stage===0&&buffer.includes('Asterisk Call Manager/')){
+    client.write('Action: Login\r\nUsername: '+username+'\r\nSecret: '+secret+'\r\nEvents: off\r\n\r\n');buffer='';stage=1;
+   }else if(stage===1&&buffer.includes('\r\n\r\n')){
+    if(!buffer.includes('Response: Success'))return finish(Error('AMI authentication rejected'));
+    buffer='';stage=2;client.write('Action: CoreStatus\r\n\r\n');
+   }else if(stage===2&&buffer.includes('\r\n\r\n')){
+    if(!buffer.includes('Response: Success'))return finish(Error('CoreStatus not permitted'));
+    const lines=Object.fromEntries(buffer.split('\r\n').filter(x=>x.includes(': ')).map(x=>{const n=x.indexOf(': ');return [x.slice(0,n),x.slice(n+2)]}));
+    finish(null,{connected:true,uptimeSince:lines.CoreStartupDate||null,uptimeTime:lines.CoreStartupTime||null,coreVersion:lines.CoreAsteriskVersion||null});
+   }
+  });
+ });
+}
+
 const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js'};
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png'};
 const respond=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(body))};
@@ -82,7 +111,7 @@ http.createServer(async(req,res)=>{
  }
  if(pathname==='/api/pbx/status'&&req.method==='GET'){
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
-  return respond(res,200,{engine:'Asterisk 22',monitoring:'not-connected',telekomSip:'not-configured',friedbergRoute:'not-configured',sipRegistrations:[],note:'Asterisk wird derzeit nicht durch die Web-API überwacht. Keine Live-Anrufe aktiv.'});
+  try{const status=await readAmiStatus();return respond(res,200,{engine:'Asterisk 22',monitoring:'connected',asterisk:status,telekomSip:'not-configured',friedbergRoute:'not-configured',sipRegistrations:[]});}catch(e){return respond(res,200,{engine:'Asterisk 22',monitoring:'unavailable',telekomSip:'not-configured',friedbergRoute:'not-configured',sipRegistrations:[],note:'AMI-Status derzeit nicht erreichbar'});}
  }
  if(pathname==='/api/numbers'){
   if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});
