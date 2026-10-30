@@ -31,7 +31,7 @@ document.querySelector('#login-form').addEventListener('submit',async event=>{
  error.textContent='';button.disabled=true;
  try{
   await authApi('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});
-  form.elements.password.value='';document.body.classList.add('authenticated');render();
+  form.elements.password.value='';document.body.classList.add('authenticated');render();loadNumbers();
  }catch(e){error.textContent=e.message}
  finally{button.disabled=false}
 });
