@@ -4,7 +4,10 @@ services:
     working_dir: /app
     volumes:
       - ./:/app:ro
+      - telefonie_data:/data
     command: ["node","server.mjs"]
+    environment:
+      DATA_DIR: /data
     restart: unless-stopped
     mem_limit: 128m
     pids_limit: 80
@@ -15,6 +18,9 @@ services:
     networks:
       - telefonie_web
       - caddy_shared
+volumes:
+  telefonie_data:
+
 networks:
   telefonie_web:
     driver: bridge
