@@ -5,9 +5,12 @@ services:
     volumes:
       - ./:/app:ro
       - telefonie_data:/data
+      - ./private/manager.conf:/run/secrets/ami.conf:ro
     command: ["node","server.mjs"]
     environment:
       DATA_DIR: /data
+      AMI_CONFIG: /run/secrets/ami.conf
+      AMI_HOST: tariq-telefonie-asterisk
     restart: unless-stopped
     mem_limit: 128m
     pids_limit: 80
@@ -18,6 +21,7 @@ services:
     networks:
       - telefonie_web
       - caddy_shared
+      - pbx_shared
 volumes:
   telefonie_data:
 
@@ -27,3 +31,6 @@ networks:
   caddy_shared:
     external: true
     name: fahrschulpilot_web
+  pbx_shared:
+    external: true
+    name: tariq-telefonie-pbx_pbx_private
