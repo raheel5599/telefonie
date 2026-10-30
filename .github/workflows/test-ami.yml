@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/test-ami.yml'
+      - 'deployment/check-ami.mjs'
   workflow_dispatch:
 
 permissions:
