@@ -4,7 +4,7 @@ Workflow: `.github/workflows/deploy.yml`
 
 ## GitHub Secrets
 Im Repository **raheel5599/telefonie** unter Settings → Secrets and variables → Actions oder im Environment `production`:
-- `HETZNER_SSH_PRIVATE_KEY`: privater Deploy-Schlüssel des bestehenden `fpadmin`-SSH-Zugangs
+- `HETZNER_SSH_KEY`: privater Deploy-Schlüssel des bestehenden `fpadmin`-SSH-Zugangs
 - `HETZNER_KNOWN_HOSTS`: **vorher verifizierter** SSH-Hostkey des Hetzner-Servers
 
 Bestehende Repository-Secrets anderer Projekte werden nicht automatisch übernommen. Keine Secrets in den Chat oder GitHub-Dateien kopieren.
