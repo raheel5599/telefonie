@@ -19,6 +19,8 @@ services:
       - SETUID
     volumes:
       - asterisk_state:/var/lib/asterisk
+      - ./asterisk/pjsip.conf:/etc/asterisk/pjsip.conf:ro
+      - ./asterisk/extensions.conf:/etc/asterisk/extensions.conf:ro
 
 volumes:
   asterisk_state:
