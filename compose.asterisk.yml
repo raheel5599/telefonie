@@ -7,13 +7,22 @@ services:
     mem_limit: 512m
     cpus: 0.50
     pids_limit: 128
-    network_mode: none
+    networks:
+      - pbx_private
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
     volumes:
       - asterisk_state:/var/lib/asterisk
 
 volumes:
   asterisk_state:
+
+networks:
+  pbx_private:
+    internal: true
