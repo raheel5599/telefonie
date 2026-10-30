@@ -1,4 +1,5 @@
 let storedNumbers=[];
+let pbxStatus=null;
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const main=document.querySelector('#main');const nav=[...document.querySelectorAll('[data-page]')];const sidebar=document.querySelector('#sidebar');
 const numberRows=[1,2,3].map(i=>'<div class="item"><span class="circle">☎</span><div class="item-text"><strong>Telekom-Rufnummer '+i+'</strong><small>Friedberg · Nummer noch nicht hinterlegt</small></div><span class="pill">Nicht verbunden</span></div>').join('');
@@ -11,7 +12,7 @@ numbers:()=>header('Rufnummern','Hinterlege deine drei Telekom-Rufnummern. Sie w
 forwards:()=>header('Weiterleitungen','Später steuerst du hier Umleitungen bei Besetzt, Nichtmelden oder außerhalb der Geschäftszeiten.')+notice+panel('Weiterleitungsregeln','<div class="panel-pad"><p>Es sind noch keine echten Regeln abrufbar. Das Erstellen und Aktivieren wird erst nach erfolgreicher Telefonie-Anbindung freigeschaltet.</p><button class="action-disabled" disabled>+ Weiterleitung erstellen · bald verfügbar</button></div>'),
 extensions:()=>header('Nebenstellen','Interne Nummern für Empfang, Büro und Mitarbeiter – später mit SIP-Endgeräten oder Softphones.')+notice+panel('Nebenstellen','<div class="panel-pad"><p>Keine Nebenstellen eingerichtet.</p><button class="action-disabled" disabled>+ Nebenstelle hinzufügen · bald verfügbar</button></div>'),
 calls:()=>header('Anrufliste','Alle eingehenden, ausgehenden und verpassten Gespräche – sobald Asterisk angebunden ist.')+notice+panel('Anrufprotokoll','<div class="panel-pad"><p>Keine Datenverbindung vorhanden. Hier werden bewusst keine Beispielanrufe als echte Ereignisse angezeigt.</p></div>'),
-settings:()=>header('Einstellungen','SIP-Trunks, Status und Zugriffssteuerung für die zukünftige Telefonanlage.')+notice+panel('Verbindungsstatus','<div class="item"><span class="circle">⌁</span><div class="item-text"><strong>Asterisk</strong><small>Versionstest erfolgreich · kein produktiver Dienst</small></div><span class="pill">Test</span></div><div class="item"><span class="circle">☎</span><div class="item-text"><strong>Telekom SIP</strong><small>Noch nicht verbunden</small></div><span class="pill">Offen</span></div><div class="item"><span class="circle">⇄</span><div class="item-text"><strong>Verwaltungs-API</strong><small>Noch nicht eingerichtet</small></div><span class="pill">Offen</span></div>')
+settings:()=>header('Einstellungen','SIP-Trunks, Status und Zugriffssteuerung für die zukünftige Telefonanlage.')+notice+panel('Verbindungsstatus','<div class="item"><span class="circle">⌁</span><div class="item-text"><strong>Asterisk</strong><small>'+(pbxStatus?.monitoring==='connected'?'AMI-Verbindung erreichbar':pbxStatus?.monitoring==='unavailable'?'AMI nicht erreichbar':'Status wird geprüft')+'</small></div><span class="pill">Test</span></div><div class="item"><span class="circle">☎</span><div class="item-text"><strong>Telekom SIP</strong><small>Noch nicht verbunden</small></div><span class="pill">Offen</span></div><div class="item"><span class="circle">⇄</span><div class="item-text"><strong>Verwaltungs-API</strong><small>Noch nicht eingerichtet</small></div><span class="pill">Offen</span></div>')
 };
 function render(){const id=location.hash.slice(1)||'overview';const page=screens[id]?id:'overview';main.innerHTML=screens[page]();nav.forEach(b=>b.classList.toggle('active',b.dataset.page===page));sidebar.classList.remove('open');document.title='TARIQ Telefonie · '+({overview:'Übersicht',numbers:'Rufnummern',forwards:'Weiterleitungen',extensions:'Nebenstellen',calls:'Anrufliste',settings:'Einstellungen'})[page];}
 nav.forEach(b=>b.addEventListener('click',()=>{location.hash=b.dataset.page;render()}));document.querySelector('#menu').addEventListener('click',()=>sidebar.classList.toggle('open'));window.addEventListener('hashchange',()=>{if(document.body.classList.contains('authenticated'))render()});
@@ -22,7 +23,7 @@ async function authApi(url,options={}){
 async function initializeAuth(){
  try{
  const result=await authApi('/api/session');
- if(result.authenticated){document.body.classList.add('authenticated');render();loadNumbers();}
+ if(result.authenticated){document.body.classList.add('authenticated');render();loadNumbers();loadPbxStatus();}
  else{document.body.classList.remove('authenticated');document.querySelector('[name=email]').value=result.email||''}
  }catch{document.querySelector('#login-error').textContent='Verbindung zur Anmeldung nicht verfügbar.'}
 }
@@ -31,7 +32,7 @@ document.querySelector('#login-form').addEventListener('submit',async event=>{
  error.textContent='';button.disabled=true;
  try{
   await authApi('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});
-  form.elements.password.value='';document.body.classList.add('authenticated');render();loadNumbers();
+  form.elements.password.value='';document.body.classList.add('authenticated');render();loadNumbers();loadPbxStatus();
  }catch(e){error.textContent=e.message}
  finally{button.disabled=false}
 });
@@ -40,6 +41,7 @@ document.querySelector('#logout').addEventListener('click',async()=>{
  document.body.classList.remove('authenticated');document.querySelector('[name=password]').value='';
 });
 initializeAuth();
+async function loadPbxStatus(){try{pbxStatus=await authApi('/api/pbx/status');if(location.hash.slice(1)==='settings')render();}catch{pbxStatus={monitoring:'unavailable'}}}
 async function loadNumbers(){
  try{const r=await authApi('/api/numbers');storedNumbers=r.numbers||[];if(location.hash.slice(1)==='numbers')render();}
  catch(e){console.warn('Rufnummern nicht geladen',e.message)}
