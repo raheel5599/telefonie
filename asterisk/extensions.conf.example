@@ -1,0 +1,9 @@
+; TARIQ Telefonie — sichere Ausgangsbasis
+[general]
+static=yes
+writeprotect=yes
+
+[default]
+; Ohne Telekom-Trunk und bestätigte Rufverteilung keine externen Ziele routen.
+exten => _X.,1,NoOp(Anrufroute nicht freigeschaltet)
+ same => n,Hangup()
