@@ -11,3 +11,5 @@ body.authenticated .auth-screen{display:none}
 .auth-card button:disabled{opacity:.6}
 #login-error{min-height:18px;color:#ff9494;margin:0}
 #logout{border:1px solid #65512d;border-radius:8px;background:#241e16;color:#f4d08b;padding:10px}
+
+.number-field{display:grid;grid-template-columns:1fr 1.3fr;gap:14px;margin:15px 0}.number-field label{display:grid;gap:7px;color:#c4a96f;font-size:12px}.number-field input{width:100%;background:#0d1015;border:1px solid #393d46;padding:13px 12px;border-radius:10px;color:white;font:inherit}.number-field input:focus{outline:2px solid #bf9650}.save-number{background:#dbb265;border:1px solid #e2c184;border-radius:10px;color:#17120a;font-weight:700;padding:13px 20px;margin-top:12px}.save-number:disabled{opacity:.55}@media(max-width:620px){.number-field{grid-template-columns:1fr}}
