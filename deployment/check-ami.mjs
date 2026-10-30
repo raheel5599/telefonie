@@ -19,7 +19,7 @@ socket.on('data',chunk=>{
   if(!data.includes('Response: Success'))return finish(false,'authentication rejected');
   data='';state='status';socket.write('Action: CoreStatus\r\n\r\n');
  }else if(state==='status'&&data.includes('\r\n\r\n')){
-  if(!data.includes('Response: Success'))return finish(false,'CoreStatus rejected');
+  if(!data.includes('Response: Success')){const msg=/^Message:\s*(.+)$/mi.exec(data)?.[1]||'No message';return finish(false,'CoreStatus rejected: '+msg.slice(0,160));}
   finish(true,'CoreStatus granted; connection from web container works');
  }
 });
