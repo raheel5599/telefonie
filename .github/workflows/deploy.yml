@@ -76,9 +76,3 @@ jobs:
 
           '
 
-      - name: Telefonie-Domain in bestehendem Caddy aktivieren
-        run: |
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
-            set -eu
-            python3 /home/fpadmin/apps/telefonie/deployment/configure-caddy.py
-          '
