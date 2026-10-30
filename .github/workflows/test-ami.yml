@@ -40,3 +40,21 @@ jobs:
             echo "=== AMI FROM WEB CONTAINER ==="
             docker exec tariq-telefonie-telefonie-web-1 node /app/deployment/check-ami.mjs
           '
+
+      - name: Netzwerkdiagnose Hetzner nach Friedberg (nur lesend)
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
+            set -eu
+            echo "=== ROUTE FRIEDBERG ==="
+            ip -4 route get 192.168.2.1 || true
+            ip -4 route get 192.168.20.1 || true
+            echo "=== DEFAULT ROUTE ==="
+            ip -4 route show default
+            echo "=== WIREGUARD INTERFACE ==="
+            ip -brief address show wg-friedberg || true
+            echo "=== TELEKOM DNS ==="
+            getent ahostsv4 tel.t-online.de | head -n 4 || true
+            echo "=== SIP TARGET ROUTE ==="
+            hostip=$(getent ahostsv4 tel.t-online.de | awk "NR==1 {print \$1}")
+            if test -n "$hostip"; then ip -4 route get "$hostip" || true; fi
+          '
