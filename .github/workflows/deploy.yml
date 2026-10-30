@@ -1,0 +1,65 @@
+name: TARIQ Telefonie · Hetzner Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'public/**'
+      - 'server.mjs'
+      - 'compose.web.yml'
+      - '*.png'
+      - 'deployment/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telefonie-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Repository holen
+        uses: actions/checkout@v4
+
+      - name: JavaScript überprüfen
+        run: node --check server.mjs && node --check public/app.js
+
+      - name: SSH-Zugang vorbereiten
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_KEY" || { echo "HETZNER_SSH_PRIVATE_KEY fehlt"; exit 1; }
+          test -n "$KNOWN_HOSTS" || { echo "HETZNER_KNOWN_HOSTS fehlt"; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Dateien auf Hetzner übertragen
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 "mkdir -p /home/fpadmin/apps/telefonie"
+          rsync -az --delete \
+            --exclude='.git/' --exclude='.github/' --exclude='*.env' \
+            --exclude='data/' --exclude='logs/' \
+            -e "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes" \
+            ./ fpadmin@167.233.32.243:/home/fpadmin/apps/telefonie/
+
+      - name: Nur Telefonie-Website aktualisieren
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
+            set -eu
+            cd /home/fpadmin/apps/telefonie
+            docker compose -p tariq-telefonie -f compose.web.yml config -q
+            docker compose -p tariq-telefonie -f compose.web.yml up -d --no-deps telefonie-web
+            curl -fsS --max-time 10 http://127.0.0.1:3095/api/session >/dev/null
+          '
