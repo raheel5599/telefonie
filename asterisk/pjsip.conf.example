@@ -1,0 +1,11 @@
+; TARIQ Telefonie — Startkonfiguration, nicht produktiv
+; Erst nach Netzwerk-/Telekom-Prüfung einsetzen.
+; Keine öffentliche SIP-Freigabe. Bind-Adresse muss auf einer tatsächlich
+; verfügbaren privaten Host-IP liegen (nicht blind 10.30.0.1 verwenden).
+[transport-private]
+type=transport
+protocol=udp
+bind=127.0.0.1:5060
+
+; Telekom-Trunk, Zugangsdaten, Nebenstellen und öffentlicher NAT-Zugang
+; werden erst nach gesonderter Prüfung ergänzt.
