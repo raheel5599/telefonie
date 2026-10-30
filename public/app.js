@@ -12,4 +12,29 @@ calls:()=>header('Anrufliste','Alle eingehenden, ausgehenden und verpassten Gesp
 settings:()=>header('Einstellungen','SIP-Trunks, Status und Zugriffssteuerung für die zukünftige Telefonanlage.')+notice+panel('Verbindungsstatus','<div class="item"><span class="circle">⌁</span><div class="item-text"><strong>Asterisk</strong><small>Versionstest erfolgreich · kein produktiver Dienst</small></div><span class="pill">Test</span></div><div class="item"><span class="circle">☎</span><div class="item-text"><strong>Telekom SIP</strong><small>Noch nicht verbunden</small></div><span class="pill">Offen</span></div><div class="item"><span class="circle">⇄</span><div class="item-text"><strong>Verwaltungs-API</strong><small>Noch nicht eingerichtet</small></div><span class="pill">Offen</span></div>')
 };
 function render(){const id=location.hash.slice(1)||'overview';const page=screens[id]?id:'overview';main.innerHTML=screens[page]();nav.forEach(b=>b.classList.toggle('active',b.dataset.page===page));sidebar.classList.remove('open');document.title='TARIQ Telefonie · '+({overview:'Übersicht',numbers:'Rufnummern',forwards:'Weiterleitungen',extensions:'Nebenstellen',calls:'Anrufliste',settings:'Einstellungen'})[page];}
-nav.forEach(b=>b.addEventListener('click',()=>{location.hash=b.dataset.page;render()}));document.querySelector('#menu').addEventListener('click',()=>sidebar.classList.toggle('open'));window.addEventListener('hashchange',render);render();
+nav.forEach(b=>b.addEventListener('click',()=>{location.hash=b.dataset.page;render()}));document.querySelector('#menu').addEventListener('click',()=>sidebar.classList.toggle('open'));window.addEventListener('hashchange',()=>{if(document.body.classList.contains('authenticated'))render()});
+async function authApi(url,options={}){
+ const response=await fetch(url,{credentials:'same-origin',cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
+ const value=await response.json();if(!response.ok)throw new Error(value.error||'Anmeldung fehlgeschlagen');return value;
+}
+async function initializeAuth(){
+ try{
+ const result=await authApi('/api/session');
+ if(result.authenticated){document.body.classList.add('authenticated');render();}
+ else{document.body.classList.remove('authenticated');document.querySelector('[name=email]').value=result.email||''}
+ }catch{document.querySelector('#login-error').textContent='Verbindung zur Anmeldung nicht verfügbar.'}
+}
+document.querySelector('#login-form').addEventListener('submit',async event=>{
+ event.preventDefault();const form=event.currentTarget,button=form.querySelector('button'),error=document.querySelector('#login-error');
+ error.textContent='';button.disabled=true;
+ try{
+  await authApi('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});
+  form.elements.password.value='';document.body.classList.add('authenticated');render();
+ }catch(e){error.textContent=e.message}
+ finally{button.disabled=false}
+});
+document.querySelector('#logout').addEventListener('click',async()=>{
+ try{await authApi('/api/logout',{method:'POST',body:'{}'})}catch{}
+ document.body.classList.remove('authenticated');document.querySelector('[name=password]').value='';
+});
+initializeAuth();
