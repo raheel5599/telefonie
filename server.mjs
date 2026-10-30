@@ -12,6 +12,13 @@ const apiKey='sb_publishable_JtRBXINBfKQWKHhIaqtytA_fgUeYjNI';
 const adminEmail='raheel1501@gmail.com';
 const adminId='73d61f82-e190-41f9-b828-e726cca98708';
 const sessions=new Map(), attempts=new Map();
+const storeDir=process.env.DATA_DIR||path.join(root,'data');
+fs.mkdirSync(storeDir,{recursive:true,mode:0o700});
+const numbersPath=path.join(storeDir,'numbers.json');
+function readNumbers(){try{const data=JSON.parse(fs.readFileSync(numbersPath,'utf8'));return Array.isArray(data)?data:[]}catch(e){if(e.code==='ENOENT')return [];throw e}}
+function writeNumbers(numbers){const temp=numbersPath+'.'+process.pid+'.tmp';fs.writeFileSync(temp,JSON.stringify(numbers,null,2),{mode:0o600});fs.renameSync(temp,numbersPath)}
+function normalizeE164(raw){const value=String(raw||'').trim().replace(/[()\s/.-]/g,'');let number=value.startsWith('00')?'+'+value.slice(2):value;if(/^0[1-9]\d+$/.test(number))number='+49'+number.slice(1);if(!/^\+[1-9]\d{6,14}$/.test(number))throw Error('Bitte eine gültige internationale Rufnummer eingeben, z. B. +496031123456.');return number}
+
 const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js'};
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png'};
 const respond=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(body))};
@@ -72,6 +79,20 @@ http.createServer(async(req,res)=>{
   sessions.delete(cookie(req));
   res.setHeader('Set-Cookie','telefonie_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
   return respond(res,200,{ok:true});
+ }
+ if(pathname==='/api/numbers'){
+  if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  if(req.method==='GET')return respond(res,200,{numbers:readNumbers(),sipConnected:false});
+  if(!checkPost(req))return respond(res,403,{error:'Ungültiger Ursprung'});
+  const input=await readBody(req);
+  if(!Array.isArray(input.numbers)||input.numbers.length>3)return respond(res,400,{error:'Maximal drei Rufnummern'});
+  let prepared;
+  try{
+    prepared=input.numbers.map((row,i)=>({id:i+1,label:String(row.label||'Rufnummer '+(i+1)).trim().slice(0,60),e164:normalizeE164(row.number)}));
+    if(new Set(prepared.map(n=>n.e164)).size!==prepared.length)throw Error('Doppelte Rufnummer');
+  }catch(err){return respond(res,400,{error:err.message})}
+  writeNumbers(prepared);return respond(res,200,{numbers:prepared,sipConnected:false});
  }
  if(pathname.startsWith('/api/'))return respond(res,404,{error:'Nicht gefunden'});
  if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405).end();return}
