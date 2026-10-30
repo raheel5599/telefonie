@@ -33,10 +33,10 @@ jobs:
 
       - name: SSH-Zugang vorbereiten
         env:
-          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
         run: |
-          test -n "$SSH_KEY" || { echo "HETZNER_SSH_PRIVATE_KEY fehlt"; exit 1; }
+          test -n "$SSH_KEY" || { echo "HETZNER_SSH_KEY fehlt"; exit 1; }
           test -n "$KNOWN_HOSTS" || { echo "HETZNER_KNOWN_HOSTS fehlt"; exit 1; }
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
