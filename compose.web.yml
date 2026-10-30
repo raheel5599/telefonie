@@ -14,6 +14,10 @@ services:
       - no-new-privileges:true
     networks:
       - telefonie_web
+      - caddy_shared
 networks:
   telefonie_web:
     driver: bridge
+  caddy_shared:
+    external: true
+    name: fahrschulpilot_web
