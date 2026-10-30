@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add one Caddy site to existing mounted Caddyfile, then validate + reload."""
+"""Add one Caddy site to existing mounted Caddyfile, then validate + restart."""
 import datetime
 import pathlib
 import shutil
@@ -41,10 +41,11 @@ shutil.copy2(source, backup)
 try:
     source.write_text(original.rstrip()+"\n\n"+BLOCK)
     run("docker","exec",CONTAINER,"caddy","validate","--config","/etc/caddy/Caddyfile")
-    run("docker","exec",CONTAINER,"caddy","reload","--config","/etc/caddy/Caddyfile")
+    run("docker","restart","--time","10",CONTAINER)
+    run("docker","exec",CONTAINER,"caddy","validate","--config","/etc/caddy/Caddyfile")
 except Exception as exc:
     source.write_text(original)
-    try: run("docker","exec",CONTAINER,"caddy","reload","--config","/etc/caddy/Caddyfile")
+    try: run("docker","restart","--time","10",CONTAINER)
     except Exception: pass
     sys.exit("Caddy-Änderung zurückgerollt: "+str(exc))
 print("Telefonie-Caddy-Site eingerichtet; Backup:",backup)
