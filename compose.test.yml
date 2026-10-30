@@ -1,0 +1,16 @@
+# Isolierter Asterisk-Starttest. Kein SIP-Trunk, keine Portfreigaben.
+# Community-Image vor dem ersten Einsatz auf Herkunft und Version prüfen.
+services:
+  asterisk-test:
+    image: andrius/asterisk:22.10.1_debian-trixie
+    container_name: tariq-asterisk-test
+    restart: "no"
+    mem_limit: 512m
+    cpus: 0.50
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    network_mode: none
+    command: ["asterisk", "-V"]
