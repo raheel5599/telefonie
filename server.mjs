@@ -38,11 +38,11 @@ async function readAmiStatus(){
     client.write('Action: Login\r\nUsername: '+username+'\r\nSecret: '+secret+'\r\nEvents: off\r\n\r\n');buffer='';stage=1;
    }else if(stage===1&&buffer.includes('\r\n\r\n')){
     if(!buffer.includes('Response: Success'))return finish(Error('AMI authentication rejected'));
-    buffer='';stage=2;client.write('Action: CoreStatus\r\n\r\n');
+    buffer='';stage=2;client.write('Action: Ping\r\n\r\n');
    }else if(stage===2&&buffer.includes('\r\n\r\n')){
-    if(!buffer.includes('Response: Success'))return finish(Error('CoreStatus not permitted'));
+    if(!buffer.includes('Response: Success'))return finish(Error('AMI Ping not permitted'));
     const lines=Object.fromEntries(buffer.split('\r\n').filter(x=>x.includes(': ')).map(x=>{const n=x.indexOf(': ');return [x.slice(0,n),x.slice(n+2)]}));
-    finish(null,{connected:true,uptimeSince:lines.CoreStartupDate||null,uptimeTime:lines.CoreStartupTime||null,coreVersion:lines.CoreAsteriskVersion||null});
+    finish(null,{connected:true,checkedAt:new Date().toISOString()});
    }
   });
  });
