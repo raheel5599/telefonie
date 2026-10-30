@@ -34,15 +34,13 @@ jobs:
       - name: SSH-Zugang vorbereiten
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
-          KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
         run: |
           test -n "$SSH_KEY" || { echo "HETZNER_SSH_KEY fehlt"; exit 1; }
-          test -n "$KNOWN_HOSTS" || { echo "HETZNER_KNOWN_HOSTS fehlt"; exit 1; }
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n' "167.233.32.243 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEADJodfCjGq6bZaB1vjOJ7z4va3a+LmWE7p53NRF2KP" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
       - name: Dateien auf Hetzner übertragen
