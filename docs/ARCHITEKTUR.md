@@ -22,5 +22,8 @@ Asterisk mit PJSIP als Telefonie-Kern, eigenständiges Repository. Die TARIQ Ver
 ## Testkonfiguration
 Die `.example`-Dateien sind absichtlich nicht an einen externen SIP-Trunk angebunden und verwenden Loopback. Sie dienen als Ausgangspunkt, **nicht** als produktive Telefonanlage.
 
-## Status
-Nur Repository-Grundgerüst; Asterisk ist nicht installiert oder gestartet.
+## Status (30.10.2026)
+- Testimage Asterisk 22.10.1 auf Hetzner erfolgreich geladen und mit `docker compose -f compose.test.yml run --rm asterisk-test` die Version ausgegeben.
+- Dies ist nur ein einmaliger Container-Versionstest; keine laufende PBX, keine SIP-Registrierung, keine Ports geöffnet.
+- Gewünschte Web-Subdomain: `telefonie.tariq-itconsulting.de` (DNS/HTTPS und Weboberfläche noch nicht verifiziert).
+- Nächste Phase: isolierte PBX-Testinstanz und später eine geschützte Verwaltungs-API. Telekom-Routing via Friedberg noch zu prüfen.
