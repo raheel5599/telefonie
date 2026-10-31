@@ -17,6 +17,13 @@ services:
       - CHOWN
       - SETGID
       - SETUID
+    # Healthcheck uses Asterisk service account for socket and spool access.
+    healthcheck:
+      test: ["CMD-SHELL", "runuser -u asterisk -- /usr/local/bin/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
     volumes:
       - asterisk_state:/var/lib/asterisk
       - ./asterisk/pjsip.conf:/etc/asterisk/pjsip.conf:ro
