@@ -1,0 +1,34 @@
+name: tariq-sip-forward-test
+services:
+  proxy:
+    build:
+      context: ../gateway-sip-test
+      dockerfile: Dockerfile
+    entrypoint: ["/usr/sbin/kamailio"]
+    command: ["-f","/etc/kamailio/kamailio.cfg","-DD","-E"]
+    volumes:
+      - ./kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
+    networks: [lab]
+    depends_on: [registrar]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+  registrar:
+    image: python:3.12-alpine
+    command: ["python","-u","/opt/registrar.py"]
+    volumes:
+      - ./registrar.py:/opt/registrar.py:ro
+    networks: [lab]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+  tester:
+    image: python:3.12-alpine
+    command: ["python","-u","/opt/tester.py"]
+    volumes:
+      - ./tester.py:/opt/tester.py:ro
+    networks: [lab]
+    depends_on: [proxy]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+networks:
+  lab:
+    internal: true
