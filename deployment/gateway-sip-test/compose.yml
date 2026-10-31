@@ -1,7 +1,9 @@
 name: tariq-sip-proxy-test
 services:
   proxy:
-    image: kamailio/kamailio:5.8
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: ["-f","/etc/kamailio/kamailio.cfg","-DD","-E"]
     volumes:
       - ./kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
