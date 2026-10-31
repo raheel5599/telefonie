@@ -109,3 +109,16 @@ jobs:
             else echo "dig unavailable"; fi
             echo "=== TELEKOM WAN MASQUERADE IS CONFIGURED ON UNIFI, NOT VERIFIED BY THIS TEST ==="
           '
+
+      - name: SIP Isolations-Preflight (keine Aenderungen)
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
+            echo "=== WG AllowedIPs via wg show (keys suppressed) ==="
+            sudo -n wg show wg-friedberg allowed-ips 2>/dev/null | sed -E "s/^[^[:space:]]+[[:space:]]+//" || true
+            echo "=== PBX bridge subnet ==="
+            docker network inspect tariq-telefonie-pbx_pbx_private --format "Internal={{.Internal}} {{range .IPAM.Config}}Subnet={{.Subnet}} {{end}}" || true
+            echo "=== SIP destination policy route ==="
+            ip -4 route get 217.0.146.5 || true
+            echo "=== Default route unaffected ==="
+            ip -4 route show default
+          '
