@@ -20,7 +20,7 @@ def challenge_fields(response):
     line = next((x for x in response.splitlines() if x.lower().startswith("www-authenticate:")), None)
     if not line or "digest" not in line.lower():
         raise ValueError("Keine Digest-Challenge")
-    pairs = dict((k.lower(), v1 if v1 is not None else v2) for k, v1, v2 in re.findall(r'(\w+)=(?:"([^"]*)"|([^,\s]+))', line))
+    pairs = dict((k.lower(), v1 if v1 else v2) for k, v1, v2 in re.findall(r'(\w+)=(?:"([^"]*)"|([^,\s]+))', line))
     if pairs.get("algorithm", "MD5").upper() != "MD5" or "auth" not in [v.strip() for v in pairs.get("qop", "auth").split(",")]:
         raise ValueError("Digest-Variante nicht unterstuetzt: algorithm=" + pairs.get("algorithm", "MD5") + ", qop=" + pairs.get("qop", "auth"))
     if not pairs.get("realm") or not pairs.get("nonce"):
