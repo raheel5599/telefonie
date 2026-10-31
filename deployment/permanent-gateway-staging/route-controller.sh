@@ -16,8 +16,21 @@ assert_safe() {
   docker network inspect tariq-telekom-gateway-staging_sip_egress >/dev/null
   docker network inspect tariq-telekom-gateway-staging_sip_egress --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' | grep -qx '172.29.247.0/28'
 }
-add_rule() { "${IPTABLES[@]}" -C "$@" 2>/dev/null || "${IPTABLES[@]}" -I "$@"; }
-remove_rule() { "${IPTABLES[@]}" -C "$@" 2>/dev/null && "${IPTABLES[@]}" -D "$@" || true; }
+add_rule() {
+  local table=filter
+  if [[ ${1:-} == -t ]]; then table=$2; shift 2; fi
+  local chain=$1; shift
+  "${IPTABLES[@]}" -t "$table" -C "$chain" "$@" 2>/dev/null ||
+    "${IPTABLES[@]}" -t "$table" -I "$chain" 1 "$@"
+}
+remove_rule() {
+  local table=filter
+  if [[ ${1:-} == -t ]]; then table=$2; shift 2; fi
+  local chain=$1; shift
+  if "${IPTABLES[@]}" -t "$table" -C "$chain" "$@" 2>/dev/null; then
+    "${IPTABLES[@]}" -t "$table" -D "$chain" "$@"
+  fi
+}
 start() {
   assert_safe
   [[ ! -e $STATE ]] || { echo 'Existing controller state: refusing to overwrite'; exit 1; }
