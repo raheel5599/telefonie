@@ -27,7 +27,9 @@ networks:
     external: true
     name: tariq-telefonie-pbx_pbx_private
   sip_egress:
-    internal: true
+    # External routing is constrained by route-controller.sh (DOCKER-USER deny-by-default).
+    # Docker internal networks have no usable default gateway for off-subnet SIP traffic.
+    internal: false
     ipam:
       config:
         - subnet: 172.29.247.0/28
