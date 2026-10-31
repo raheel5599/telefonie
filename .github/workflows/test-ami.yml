@@ -137,3 +137,18 @@ jobs:
             echo "=== ASTERISK SIP REGISTRATIONS ==="
             docker exec -u asterisk -w / tariq-telefonie-asterisk asterisk -rx "pjsip show registrations" | tail -n 8 || true
           '
+
+      - name: UniFi WAN Egress Voraussetzungen ohne Aenderung
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
+            echo "=== EXISTING VPN ROUTES ==="
+            ip -4 route show dev wg-friedberg || true
+            echo "=== VPN-BOUND ROUTE TO TELEKOM SIP (no packet sent) ==="
+            ip -4 route get 217.0.146.5 from 192.168.2.2 || true
+            echo "=== VPN-BOUND TCP CONNECTIVITY TO UNIFI LAN (no SIP) ==="
+            timeout 3 bash -c "echo > /dev/tcp/192.168.20.1/443" && echo "LAN TCP443 reachable" || echo "LAN TCP443 not confirmed"
+            echo "=== VPN TUNNEL MTU ==="
+            ip -d link show wg-friedberg | head -n 3 || true
+            echo "=== HOST FIREWALL TOOL AVAILABILITY ==="
+            for cmd in nft iptables; do command -v "$cmd" || true; done
+          '
