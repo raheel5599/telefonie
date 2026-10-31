@@ -122,3 +122,18 @@ jobs:
             echo "=== Default route unaffected ==="
             ip -4 route show default
           '
+
+      - name: WireGuard Konfiguration sicher pruefen (nur lesend)
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
+            echo "=== WG PEER ALLOWED IPs (redacted public keys) ==="
+            sudo -n wg show wg-friedberg allowed-ips 2>&1 | sed -E "s/^[A-Za-z0-9+\/=]{30,}[[:space:]]+//" || true
+            echo "=== WG CLIENT CONFIG LOCATIONS (paths only) ==="
+            sudo -n find /etc/wireguard -maxdepth 2 -type f -printf "%p\n" 2>/dev/null || true
+            echo "=== WG DEVICE ADDRESS ==="
+            ip -4 -brief addr show dev wg-friedberg || true
+            echo "=== HOST FORWARDING ==="
+            sysctl -n net.ipv4.ip_forward || true
+            echo "=== ASTERISK SIP REGISTRATIONS ==="
+            docker exec -u asterisk -w / tariq-telefonie-asterisk asterisk -rx "pjsip show registrations" | tail -n 8 || true
+          '
