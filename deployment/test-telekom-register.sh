@@ -97,6 +97,7 @@ try:
   except socket.timeout: print("WARNUNG: Abmeldung ohne Antwort; Registrierung kann bis zu 1620 Sekunden bestehen.")
  elif status in (401,403,407):
   print("Telekom verlangt Authentifizierung oder lehnt Anmeldung ab.")
+  print("Automatische Digest-Anmeldung muss separat erfolgen.")
  elif status==423:
   print("Telekom fordert erneut ein laengeres Intervall; keine automatische Wiederholung.")
  elif status is None:
