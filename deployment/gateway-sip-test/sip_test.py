@@ -1,9 +1,10 @@
 import socket, time, uuid
 s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+s.bind(("0.0.0.0", 5062))
 s.settimeout(1.5)
 def send(method,user,expected):
     msg=(f"{method} sip:{user}@proxy SIP/2.0\r\n"
-         f"Via: SIP/2.0/UDP tester:5062;branch=z9hG4bK{uuid.uuid4().hex}\r\n"
+         f"Via: SIP/2.0/UDP tester:5062;rport;branch=z9hG4bK{uuid.uuid4().hex}\r\n"
          "Max-Forwards: 10\r\n"
          f"From: <sip:lab@test>;tag={uuid.uuid4().hex}\r\n"
          f"To: <sip:{user}@proxy>\r\n"
