@@ -1,0 +1,17 @@
+[Unit]
+Description=TARIQ Telekom SIP-only WireGuard policy routing (staging)
+Requires=wg-quick@wg-friedberg.service docker.service
+After=wg-quick@wg-friedberg.service docker.service
+Before=tariq-telekom-kamailio.service
+ConditionPathExists=/opt/tariq-telefonie/deployment/permanent-gateway-staging/route-controller.sh
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash /opt/tariq-telefonie/deployment/permanent-gateway-staging/route-controller.sh start
+ExecStop=/bin/bash /opt/tariq-telefonie/deployment/permanent-gateway-staging/route-controller.sh stop
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
