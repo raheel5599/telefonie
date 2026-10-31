@@ -95,9 +95,34 @@ try:
   print("Registrierung akzeptiert; melde sofort wieder ab.")
   try: send_register(0,2)
   except socket.timeout: print("WARNUNG: Abmeldung ohne Antwort; Registrierung kann bis zu 1620 Sekunden bestehen.")
- elif status in (401,403,407):
-  print("Telekom verlangt Authentifizierung oder lehnt Anmeldung ab.")
-  print("Automatische Digest-Anmeldung muss separat erfolgen.")
+ elif status==401:
+  import hashlib,secrets
+  challenge=re.search(r"WWW-Authenticate:\\s*Digest\\s+([^\\r\\n]+)",txt,re.I)
+  if not challenge:
+   print("Keine Digest-Challenge gefunden")
+  else:
+   def field(k):
+    m=re.search(k+r"=(?:\\\"([^\\\"]+)\\\"|([^,\\s]+))",challenge.group(1),re.I)
+    return (m.group(1) or m.group(2)) if m else ""
+   realm,nonce=field("realm"),field("nonce")
+   user="anonymous@t-online.de"
+   secret="anonymous@t-online.de"
+   def h(x): return hashlib.md5(x.encode()).hexdigest()
+   cnonce=secrets.token_hex(8)
+   ha1=h(f"{user}:{realm}:{secret}")
+   ha2=h(f"REGISTER:{uri}")
+   response=h(f"{ha1}:{nonce}:00000001:{cnonce}:auth:{ha2}")
+   auth=f'Authorization: Digest username="{user}",realm="{realm}",nonce="{nonce}",uri="{uri}",response="{response}",algorithm=MD5,qop=auth,nc=00000001,cnonce="{cnonce}"'
+   branch="z9hG4bK"+uuid.uuid4().hex[:12]
+   msg=(f"REGISTER {uri} SIP/2.0\\r\\nVia: SIP/2.0/UDP 192.168.2.2:{port};branch={branch};rport\\r\\nMax-Forwards: 70\\r\\nFrom: <{aor}>;tag={tag}\\r\\nTo: <{aor}>\\r\\nCall-ID: {callid}\\r\\nCSeq: 2 REGISTER\\r\\nContact: <sip:+4960316868187@192.168.2.2:{port}>;expires=1620\\r\\nExpires: 1620\\r\\n{auth}\\r\\nContent-Length: 0\\r\\n\\r\\n")
+   s.sendto(msg.encode(),dst)
+   data,addr=s.recvfrom(8192)
+   answer=data.decode(errors="replace")
+   print("Antwort nach Digest:",answer.splitlines()[0])
+   if answer.startswith("SIP/2.0 200"):
+    print("ACHTUNG: Registrierung angenommen, Abmeldung ueber diesen Test nicht garantiert. Maximal 1620 Sekunden.")
+ elif status in (403,407):
+  print("Telekom lehnt Anmeldung ab.")
  elif status==423:
   print("Telekom fordert erneut ein laengeres Intervall; keine automatische Wiederholung.")
  elif status is None:
