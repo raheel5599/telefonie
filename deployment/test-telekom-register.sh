@@ -66,7 +66,7 @@ branch="z9hG4bK"+uuid.uuid4().hex[:12]
 uri="sip:tel.t-online.de"
 aor="sip:+4960316868187@tel.t-online.de"
 def send_register(expires,cseq):
- global branch
+ global branch,txt
  branch="z9hG4bK"+uuid.uuid4().hex[:12]
  lines=[
  f"REGISTER {uri} SIP/2.0",
