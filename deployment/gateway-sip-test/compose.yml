@@ -1,0 +1,22 @@
+name: tariq-sip-proxy-test
+services:
+  proxy:
+    image: kamailio/kamailio:5.8
+    command: ["-f","/etc/kamailio/kamailio.cfg","-DD","-E"]
+    volumes:
+      - ./kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
+    networks: [lab]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+  tester:
+    image: python:3.12-alpine
+    command: ["python","-u","/opt/sip_test.py"]
+    volumes:
+      - ./sip_test.py:/opt/sip_test.py:ro
+    networks: [lab]
+    depends_on: [proxy]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+networks:
+  lab:
+    internal: true
