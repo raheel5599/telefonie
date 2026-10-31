@@ -1,0 +1,33 @@
+name: tariq-telekom-gateway-staging
+# STAGING ONLY: do not start before policy-routing and return-path checks.
+# This compose never changes the existing Asterisk container.
+services:
+  kamailio:
+    build:
+      context: ../gateway-sip-test
+      dockerfile: Dockerfile
+    image: tariq-telekom-kamailio-staging:local
+    entrypoint: ["/usr/sbin/kamailio"]
+    command: ["-f", "/etc/kamailio/kamailio.cfg", "-DD", "-E"]
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=8m
+    volumes:
+      - ./kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
+    networks:
+      pbx_private:
+        ipv4_address: 172.25.254.10
+      sip_egress:
+        ipv4_address: 172.29.247.2
+networks:
+  pbx_private:
+    external: true
+    name: tariq-telefonie-pbx_pbx_private
+  sip_egress:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.247.0/28
