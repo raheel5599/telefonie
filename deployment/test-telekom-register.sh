@@ -133,6 +133,6 @@ except socket.timeout:
 '
 
 echo "Test abgeschlossen; alle temporaeren Regeln werden entfernt."    def field(k):
-     m=re.search(k+r'=(?:"([^"]+)"|([^,\\s]+))',challenge.group(1),re.I)
+     m=re.search(k+r"=(?:\\x22([^\\x22]+)\\x22|([^,\\s]+))",challenge.group(1),re.I)
      return (m.group(1) or m.group(2)) if m else ""
-    auth="Authorization: Digest username={},realm={},nonce={},uri={},response={},algorithm=MD5,qop=auth,nc=00000001,cnonce={}".format(*['"'+x+'"' for x in (user,realm,nonce,uri,response,cnonce)])
+    auth="Authorization: Digest username={},realm={},nonce={},uri={},response={},algorithm=MD5,qop=auth,nc=00000001,cnonce={}".format(*[chr(34)+x+chr(34) for x in (user,realm,nonce,uri,response,cnonce)])
