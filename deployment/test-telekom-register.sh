@@ -89,16 +89,16 @@ def send_register(expires,cseq):
  m=re.match(r"SIP/2.0\s+(\d+)",txt)
  return int(m.group(1)) if m else None
 try:
- status=send_register(60,1)
+ status=send_register(1620,1)
  print("REGISTER-Status:",status)
  if status==200:
   print("Registrierung akzeptiert; melde sofort wieder ab.")
   try: send_register(0,2)
-  except socket.timeout: print("WARNUNG: Abmeldung ohne Antwort; Registrierung kann bis zu 60 Sekunden bestehen.")
+  except socket.timeout: print("WARNUNG: Abmeldung ohne Antwort; Registrierung kann bis zu 1620 Sekunden bestehen.")
  elif status in (401,403,407):
   print("Telekom verlangt Authentifizierung oder lehnt Anmeldung ab.")
  elif status==423:
-  print("Min-Expires zu klein; keine automatische Wiederholung.")
+  print("Telekom fordert erneut ein laengeres Intervall; keine automatische Wiederholung.")
  elif status is None:
   sys.exit(2)
 except socket.timeout:
