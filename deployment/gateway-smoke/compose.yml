@@ -1,0 +1,24 @@
+name: tariq-sip-gateway-smoke
+services:
+  responder:
+    image: python:3.12-alpine
+    command: ["python","-u","/opt/udp.py","server"]
+    volumes:
+      - ./udp.py:/opt/udp.py:ro
+    networks: [sip_lab]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+  client:
+    image: python:3.12-alpine
+    command: ["python","-u","/opt/udp.py","client"]
+    volumes:
+      - ./udp.py:/opt/udp.py:ro
+    networks: [sip_lab]
+    depends_on: [responder]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+networks:
+  sip_lab:
+    internal: true
