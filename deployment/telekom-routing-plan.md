@@ -24,3 +24,13 @@ Stand: 2026-10-31. Ziel: Asterisk bleibt auf Hetzner; nur SIP/RTP über WireGuar
 
 ## Rückbau
 Testnamespace und nur eigens angelegte Regeln entfernen; niemals global `ip route replace default`, `wg-quick down`, bestehende UniFi-Masquerade oder andere Docker-Netze ändern.
+
+
+## Konkret vorbereitete Implementierung (noch nicht ausführen)
+**Trennung:** SIP/RTP läuft in einer dedizierten PBX-Netzwerkumgebung. Hetzners globale Default-Route bleibt unverändert. Statt einzelner dynamischer Telekom-SIP-IPs kann die PBX über eine dedizierte Policy-Routing-Tabelle `24680` zu `wg-friedberg` geleitet werden. Voraussetzung: der bestehende WireGuard-Peer muss für die öffentliche Gegenstelle entsprechend erweitert werden, ohne dass `wg-quick` die Haupt-Routingtabelle überschreibt (z.B. `Table = off` mit ausdrücklich verwalteten Routen). Das darf erst nach Prüfung des aktuell verwendeten Netzwerkmanagers erfolgen. Bei `AllowedIPs = 0.0.0.0/0` ist eine explizite, unveränderte WAN-Route für den WireGuard-Endpoint sowie eine PBX-spezifische Policy zwingend; keine pauschale Host-Regel.
+
+**Unbedingt vorab verifizieren:** (a) UniFi-VPN-Server unterstützt Forwarding vom WireGuard-Client ins WAN1, (b) Rückpakete werden vom VPN-Server zum Hetzner-Client zugestellt, (c) Telekom SIP/RTP und DNS sind über die WAN1-Quell-IP erreichbar, (d) die PBX-Container-NAT-/Firewall-Regeln greifen ausschließlich für Telefonie, (e) Failover bei dynamischen SIP-Zielen. Wenn UniFi kein VPN-Client→WAN-Egress zulässt, ist diese Architektur mit dem aktuellen Gateway nicht direkt umsetzbar; ein alternatives Gateway oder ein unterstützter Tunneltyp wäre erforderlich.
+
+**SIP-Anmeldung:** Zuerst eine Rufnummer mit Telekoms unterstützter automatischer Authentifizierung prüfen; `anonymous@t-online.de` ist ein Testkandidat, kein garantiert gültiger Zugang. Kein Telekom-Kundencenter-Passwort im Repository. Erst nach bestätigtem Transport und sicherem Secrets-Speicher Asterisk registrieren.
+
+**Rückbauplan:** Alle neuen Policy-Regeln mit eigener Priorität und Tabelle `24680`, PBX-only NAT/Firewall-Einträge und Container-Anbindung vollständig dokumentieren und in umgekehrter Reihenfolge entfernen; vor/nach jeder Änderung `ip rule`, `ip route`, `wg show ... allowed-ips`, Docker-Netzwerkstatus vergleichen. Bei Testfehler automatisch rollback. Bestehende VPN- und Hetzner-Default-Routen niemals ersetzen.
