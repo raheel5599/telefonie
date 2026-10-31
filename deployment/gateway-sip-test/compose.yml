@@ -4,6 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    entrypoint: ["/usr/sbin/kamailio"]
     command: ["-f","/etc/kamailio/kamailio.cfg","-DD","-E"]
     volumes:
       - ./kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
