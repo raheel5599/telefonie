@@ -1,3 +1,5 @@
+name: tariq-telefonie-pbx
+
 # Isolierte PBX, keine SIP-/RTP-Freigaben und keine Telekom-Zugangsdaten.
 services:
   asterisk:
@@ -32,6 +34,8 @@ services:
 
 volumes:
   asterisk_state:
+    external: true
+    name: tariq-telefonie-pbx_asterisk_state
 
 networks:
   pbx_private:
