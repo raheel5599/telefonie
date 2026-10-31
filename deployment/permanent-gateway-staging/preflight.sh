@@ -15,5 +15,5 @@ docker compose -f deployment/permanent-gateway-staging/compose.yml config --quie
 echo "=== GATEWAY IMAGE ==="
 docker image inspect tariq-sip-forward-test-proxy:latest --format '{{.Id}}'
 echo "=== CURRENT REGISTRATIONS ==="
-docker exec tariq-telefonie-asterisk asterisk -rx 'pjsip show registrations'
+docker exec -u asterisk -w /tmp tariq-telefonie-asterisk asterisk -rx 'pjsip show registrations'
 echo "=== PREFLIGHT COMPLETE: NO CHANGES MADE ==="
