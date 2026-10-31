@@ -90,3 +90,22 @@ jobs:
             echo "=== HOST FORWARD RULES (read only) ==="
             ip -4 route get 192.168.2.1
           '
+
+      - name: Telekom SIP Pfadpruefung ohne Routing-Aenderung
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
+            echo "=== WIREGUARD PEER ALLOWED NETWORKS (without keys) ==="
+            sudo -n wg show wg-friedberg allowed-ips 2>/dev/null | cut -f2- || true
+            echo "=== TELEKOM SIP SRV ==="
+            if command -v dig >/dev/null 2>&1; then
+              dig +short SRV _sip._udp.tel.t-online.de
+              for h in $(dig +short SRV _sip._udp.tel.t-online.de | awk "{print \$4}" | head -n 3); do
+                echo "SIP hostname: $h"
+                for ip in $(dig +short A "$h" | grep -E "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$" | head -n 2); do
+                  echo "Destination $ip route:"
+                  ip -4 route get "$ip" || true
+                done
+              done
+            else echo "dig unavailable"; fi
+            echo "=== TELEKOM WAN MASQUERADE IS CONFIGURED ON UNIFI, NOT VERIFIED BY THIS TEST ==="
+          '
