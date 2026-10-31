@@ -97,12 +97,12 @@ try:
   except socket.timeout: print("WARNUNG: Abmeldung ohne Antwort; Registrierung kann bis zu 1620 Sekunden bestehen.")
  elif status==401:
   import hashlib,secrets
-  challenge=re.search(r"WWW-Authenticate:\\s*Digest\\s+([^\\r\\n]+)",txt,re.I)
+  challenge=re.search(r"WWW-Authenticate:\s*Digest\s+([^\r\n]+)",txt,re.I)
   if not challenge:
    print("Keine Digest-Challenge gefunden")
   else:
    def field(k):
-    m=re.search(k+r"=(?:\\\"([^\\\"]+)\\\"|([^,\\s]+))",challenge.group(1),re.I)
+    m=re.search(k+r"=(?:\\"([^\\"]+)\\"|([^,\s]+))",challenge.group(1),re.I)
     return (m.group(1) or m.group(2)) if m else ""
    realm,nonce=field("realm"),field("nonce")
    user="anonymous@t-online.de"
@@ -112,9 +112,9 @@ try:
    ha1=h(f"{user}:{realm}:{secret}")
    ha2=h(f"REGISTER:{uri}")
    response=h(f"{ha1}:{nonce}:00000001:{cnonce}:auth:{ha2}")
-   auth="Authorization: Digest username=\\\"{}\\\",realm=\\\"{}\\\",nonce=\\\"{}\\\",uri=\\\"{}\\\",response=\\\"{}\\\",algorithm=MD5,qop=auth,nc=00000001,cnonce=\\\"{}\\\"".format(user,realm,nonce,uri,response,cnonce)
+   auth="Authorization: Digest username=\\"{}\\",realm=\\"{}\\",nonce=\\"{}\\",uri=\\"{}\\",response=\\"{}\\",algorithm=MD5,qop=auth,nc=00000001,cnonce=\\"{}\\"".format(user,realm,nonce,uri,response,cnonce)
    branch="z9hG4bK"+uuid.uuid4().hex[:12]
-   msg=(f"REGISTER {uri} SIP/2.0\\r\\nVia: SIP/2.0/UDP 192.168.2.2:{port};branch={branch};rport\\r\\nMax-Forwards: 70\\r\\nFrom: <{aor}>;tag={tag}\\r\\nTo: <{aor}>\\r\\nCall-ID: {callid}\\r\\nCSeq: 2 REGISTER\\r\\nContact: <sip:+4960316868187@192.168.2.2:{port}>;expires=1620\\r\\nExpires: 1620\\r\\n{auth}\\r\\nContent-Length: 0\\r\\n\\r\\n")
+   msg=(f"REGISTER {uri} SIP/2.0\r\nVia: SIP/2.0/UDP 192.168.2.2:{port};branch={branch};rport\r\nMax-Forwards: 70\r\nFrom: <{aor}>;tag={tag}\r\nTo: <{aor}>\r\nCall-ID: {callid}\r\nCSeq: 2 REGISTER\r\nContact: <sip:+4960316868187@192.168.2.2:{port}>;expires=1620\r\nExpires: 1620\r\n{auth}\r\nContent-Length: 0\r\n\r\n")
    s.sendto(msg.encode(),dst)
    data,addr=s.recvfrom(8192)
    answer=data.decode(errors="replace")
