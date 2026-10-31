@@ -22,14 +22,20 @@ start() {
   assert_safe
   [[ ! -e $STATE ]] || { echo 'Existing controller state: refusing to overwrite'; exit 1; }
   [[ -z $(ip -4 rule show | grep -E "^$PRIO:") ]] || { echo 'Priority occupied'; exit 1; }
-  [[ -z $(ip -4 route show table "$TABLE") ]] || { echo 'Route table occupied'; exit 1; }
+  [[ -z $(ip -4 route show table "$TABLE" 2>/dev/null || true) ]] || { echo 'Route table occupied'; exit 1; }
+  [[ $(docker inspect tariq-telekom-gateway-staging-kamailio-1 --format '{{.State.Running}}' 2>/dev/null) == true ]] || { echo 'Staging gateway is not running'; exit 1; }
+  [[ $(docker inspect tariq-telekom-gateway-staging-kamailio-1 --format '{{index .NetworkSettings.Networks "tariq-telekom-gateway-staging_sip_egress"}}' 2>/dev/null) != '<nil>' ]] || { echo 'Gateway egress network missing'; exit 1; }
+  for rule in 'DOCKER-USER -s 172.29.247.2/32 -j DROP' 'DOCKER-USER -s 172.29.247.2/32 -d 217.0.146.5/32 -o wg-friedberg -p udp --dport 5060 -j ACCEPT'; do
+    read -r -a args <<< "$rule"
+    if "${IPTABLES[@]}" -C "${args[@]}" 2>/dev/null; then echo "Existing firewall rule conflicts with controller ownership"; exit 1; fi
+  done
   local original
   original=$(wg show "$WG" allowed-ips | awk -v p="$PEER" '$1==p {for(i=2;i<=NF;i++) printf "%s%s",(i==2?"":","),$i}')
   [[ -n $original ]] || { echo 'Expected WireGuard peer missing'; exit 1; }
   [[ $original != *"$DEST/32"* ]] || { echo 'Destination already managed elsewhere'; exit 1; }
   install -d -m 0700 "$STATE"
   printf '%s\n' "$original" > "$STATE/allowed-ips"
-  trap 'echo "Startup failed: reverting controller changes" >&2; stop' ERR
+  trap 'echo "Startup interrupted: reverting controller changes" >&2; stop' ERR INT TERM
   # Default deny gateway egress; narrowly allow SIP over WireGuard.
   add_rule DOCKER-USER -s "$SRC/32" -j DROP
   add_rule DOCKER-USER -s "$SRC/32" -d "$DEST/32" -o "$WG" -p udp --dport 5060 -j ACCEPT
@@ -37,10 +43,11 @@ start() {
   ip -4 route add "$DEST/32" dev "$WG" table "$TABLE"
   ip -4 rule add pref "$PRIO" from "$SRC/32" to "$DEST/32" lookup "$TABLE"
   add_rule -t nat POSTROUTING -s "$SRC/32" -d "$DEST/32" -o "$WG" -p udp --dport 5060 -j SNAT --to-source 192.168.2.2
-  trap - ERR
+  trap - ERR INT TERM
   echo 'Restricted SIP route configured; registration remains blocked by Kamailio.'
 }
 stop() {
+  [[ -d $STATE && -f $STATE/allowed-ips ]] || { echo 'No owned route state; refusing cleanup'; return 0; }
   remove_rule -t nat POSTROUTING -s "$SRC/32" -d "$DEST/32" -o "$WG" -p udp --dport 5060 -j SNAT --to-source 192.168.2.2
   ip -4 rule del pref "$PRIO" from "$SRC/32" to "$DEST/32" lookup "$TABLE" 2>/dev/null || true
   ip -4 route del "$DEST/32" dev "$WG" table "$TABLE" 2>/dev/null || true
