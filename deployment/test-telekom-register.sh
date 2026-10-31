@@ -112,7 +112,7 @@ try:
    ha1=h(f"{user}:{realm}:{secret}")
    ha2=h(f"REGISTER:{uri}")
    response=h(f"{ha1}:{nonce}:00000001:{cnonce}:auth:{ha2}")
-   auth=f'Authorization: Digest username="{user}",realm="{realm}",nonce="{nonce}",uri="{uri}",response="{response}",algorithm=MD5,qop=auth,nc=00000001,cnonce="{cnonce}"'
+   auth="Authorization: Digest username=\\\"{}\\\",realm=\\\"{}\\\",nonce=\\\"{}\\\",uri=\\\"{}\\\",response=\\\"{}\\\",algorithm=MD5,qop=auth,nc=00000001,cnonce=\\\"{}\\\"".format(user,realm,nonce,uri,response,cnonce)
    branch="z9hG4bK"+uuid.uuid4().hex[:12]
    msg=(f"REGISTER {uri} SIP/2.0\\r\\nVia: SIP/2.0/UDP 192.168.2.2:{port};branch={branch};rport\\r\\nMax-Forwards: 70\\r\\nFrom: <{aor}>;tag={tag}\\r\\nTo: <{aor}>\\r\\nCall-ID: {callid}\\r\\nCSeq: 2 REGISTER\\r\\nContact: <sip:+4960316868187@192.168.2.2:{port}>;expires=1620\\r\\nExpires: 1620\\r\\n{auth}\\r\\nContent-Length: 0\\r\\n\\r\\n")
    s.sendto(msg.encode(),dst)
