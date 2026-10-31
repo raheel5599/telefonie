@@ -20,7 +20,7 @@ add_rule() { "${IPTABLES[@]}" -C "$@" 2>/dev/null || "${IPTABLES[@]}" -I "$@"; }
 remove_rule() { "${IPTABLES[@]}" -C "$@" 2>/dev/null && "${IPTABLES[@]}" -D "$@" || true; }
 start() {
   assert_safe
-  [[ ! -e $STATE ]] || { echo 'Already managed'; exit 0; }
+  [[ ! -e $STATE ]] || { echo 'Existing controller state: refusing to overwrite'; exit 1; }
   [[ -z $(ip -4 rule show | grep -E "^$PRIO:") ]] || { echo 'Priority occupied'; exit 1; }
   [[ -z $(ip -4 route show table "$TABLE") ]] || { echo 'Route table occupied'; exit 1; }
   local original
@@ -29,6 +29,7 @@ start() {
   [[ $original != *"$DEST/32"* ]] || { echo 'Destination already managed elsewhere'; exit 1; }
   install -d -m 0700 "$STATE"
   printf '%s\n' "$original" > "$STATE/allowed-ips"
+  trap 'echo "Startup failed: reverting controller changes" >&2; stop' ERR
   # Default deny gateway egress; narrowly allow SIP over WireGuard.
   add_rule DOCKER-USER -s "$SRC/32" -j DROP
   add_rule DOCKER-USER -s "$SRC/32" -d "$DEST/32" -o "$WG" -p udp --dport 5060 -j ACCEPT
@@ -36,6 +37,7 @@ start() {
   ip -4 route add "$DEST/32" dev "$WG" table "$TABLE"
   ip -4 rule add pref "$PRIO" from "$SRC/32" to "$DEST/32" lookup "$TABLE"
   add_rule -t nat POSTROUTING -s "$SRC/32" -d "$DEST/32" -o "$WG" -p udp --dport 5060 -j SNAT --to-source 192.168.2.2
+  trap - ERR
   echo 'Restricted SIP route configured; registration remains blocked by Kamailio.'
 }
 stop() {
@@ -54,7 +56,7 @@ stop() {
       echo 'WireGuard peer changed externally: manual review required; not overwriting AllowedIPs' >&2
     fi
   fi
-  rm -rf -- "$STATE"
+  if [[ -d $STATE ]]; then rm -f -- "$STATE/allowed-ips"; rmdir -- "$STATE" 2>/dev/null || true; fi
 }
 case "${1:-}" in
   start) start ;;
