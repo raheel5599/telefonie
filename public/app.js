@@ -1,6 +1,6 @@
 const main=document.querySelector('#main'),sidebar=document.querySelector('#sidebar');
 const nav=[...document.querySelectorAll('[data-page]')];
-let pbxStatus=null,liveStatus=null,storedNumbers=[],routingPlans={};
+let pbxStatus=null,liveStatus=null,storedNumbers=[],routingPlans={},routingPreview=null;
 const lines=[
  {label:'TARIQ Fahrdienst',e164:'+4960316868187',ext:'100',verified:true},
  {label:'TARIQ',e164:'+4960316843466',ext:'101',verified:false},
@@ -16,6 +16,7 @@ const lineRows=()=>lines.map((x,i)=>{const registration=liveStatus?.registration
 const stat=(name,value,sub)=>'<div class="stat"><div class="kicker">'+name+'</div><strong>'+value+'</strong><small>'+sub+'</small></div>';
 const monitor=()=>pbxStatus?.monitoring==='connected'?'Verbunden':pbxStatus?.monitoring==='unavailable'?'Nicht erreichbar':'Nicht geprüft';
 
+const previewPanel=()=>panel('Vorschau der Rufverteilung',routingPreview?.entries?.length?routingPreview.entries.map(p=>row('↪',lines.find(x=>x.e164===p.line)?.label||p.line,'Nebenstelle '+p.extension+' · '+p.description,pill('Nicht aktiviert'))).join('')+'<div class="panel-pad"><p class="page-text">Die Vorschau ändert keine produktiven Asterisk-Regeln.</p></div>':'<div class="panel-pad"><p class="page-text">Noch keine gespeicherten Rufverteilungspläne vorhanden.</p></div>','Schreibgeschützt');
 const planForm=()=>'<form id="routing-form" class="panel-pad"><p class="page-text">Planung speichern – keine Änderung an der laufenden Telefonanlage. Nach der späteren Freigabe können wir diese Regeln in Asterisk übernehmen.</p><label class="field">Rufnummer<select name="line">'+lines.map(x=>'<option value="'+x.e164+'">'+esc(x.label)+' · '+x.e164+'</option>').join('')+'</select></label><label class="field">Ziel-Nebenstelle<select name="extension">'+lines.map(x=>'<option value="'+x.ext+'">'+x.ext+' · '+esc(x.label)+'</option>').join('')+'</select></label><label class="field"><input type="checkbox" name="enabled"> Öffnungszeiten-Regel vormerken</label><div class="feature-grid"><label class="field">Von<input type="time" name="start" value="09:00" required></label><label class="field">Bis<input type="time" name="end" value="17:00" required></label></div><div class="days">'+['Mo','Di','Mi','Do','Fr','Sa','So'].map((x,i)=>'<label><input type="checkbox" name="day" value="'+i+'" '+(i<5?'checked':'')+'> '+x+'</label>').join('')+'</div><button class="save-number" type="submit">Planung speichern</button><p id="routing-message" class="page-text" role="status"></p></form>';
 function populatePlan(form){const p=routingPlans[form.elements.line.value];form.elements.extension.value=p?.extension||lines.find(x=>x.e164===form.elements.line.value)?.ext||'100';form.elements.enabled.checked=p?.enabled||false;form.elements.start.value=p?.start||'09:00';form.elements.end.value=p?.end||'17:00';[...form.querySelectorAll('[name=day]')].forEach(c=>c.checked=p?p.days.includes(Number(c.value)):Number(c.value)<5)}
 
@@ -41,7 +42,7 @@ const screens={
  panel('Gesprächsverlauf','<div class="panel-pad"><p class="page-text">Noch keine Live-Anrufhistorie angebunden. Hier erscheinen nach der CDR-Integration nur tatsächliche Anrufe – keine erfundenen Testdaten.</p></div>'),
  hours:()=>head('Öffnungszeiten & Ansagen','Für jede Rufnummer eigene Zeiten, Feiertage und Ansagen planen.')+
  panel('Firmenprofile',lines.map(x=>row('◷',x.label,'Individuelle Geschäftszeiten und Feiertage',pill('Noch nicht eingerichtet'))).join(''))+
- panel('Öffnungszeiten planen',planForm())+panel('Weitere Möglichkeiten','<div class="panel-pad"><div class="feature-grid">'+['Wochenplan','Feiertagskalender','Geschlossen-Ansage','Warteschleife','Sprachmenü (IVR)','Voicemail per E-Mail'].map(x=>'<div class="feature">✓ '+x+' <small>In Vorbereitung</small></div>').join('')+'</div></div>'),
+ panel('Öffnungszeiten planen',planForm())+previewPanel()+panel('Weitere Möglichkeiten','<div class="panel-pad"><div class="feature-grid">'+['Wochenplan','Feiertagskalender','Geschlossen-Ansage','Warteschleife','Sprachmenü (IVR)','Voicemail per E-Mail'].map(x=>'<div class="feature">✓ '+x+' <small>In Vorbereitung</small></div>').join('')+'</div></div>'),
  settings:()=>head('Systemeinstellungen','Verbindungen, Sicherheit und technische Konfiguration.')+
  panel('Verbindungsstatus',row('◉','Asterisk AMI',monitor(),pill(pbxStatus?.monitoring==='connected'?'Erreichbar':'Nicht bestätigt',pbxStatus?.monitoring==='connected'?'good':'neutral'))+
  row('☎','Telekom SIP','Drei Registrierungen zuletzt bestätigt',pill('Live-Prüfung folgt'))+
@@ -53,7 +54,7 @@ nav.forEach(b=>b.addEventListener('click',()=>{location.hash=b.dataset.page;rend
 document.querySelector('#menu').addEventListener('click',()=>sidebar.classList.toggle('open'));
 window.addEventListener('hashchange',()=>{if(document.body.classList.contains('authenticated'))render()});
 async function api(url,options={}){const response=await fetch(url,{credentials:'same-origin',cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});const result=await response.json();if(!response.ok)throw Error(result.error||'Anfrage fehlgeschlagen');return result;}
-async function loadPlans(){try{const r=await api('/api/routing-plans');routingPlans=r.plans||{};if(location.hash==='#hours')render()}catch(e){console.warn('Pläne nicht geladen',e.message)}}
+async function loadPlans(){try{const [r,p]=await Promise.all([api('/api/routing-plans'),api('/api/routing-preview')]);routingPlans=r.plans||{};routingPreview=p;if(location.hash==='#hours')render()}catch(e){console.warn('Pläne nicht geladen',e.message)}}
 async function loadStatus(){try{[pbxStatus,liveStatus]=await Promise.all([api('/api/pbx/status'),api('/api/pbx/live')])}catch{pbxStatus={monitoring:'unavailable'};liveStatus=null}render();}
 async function initialize(){try{const r=await api('/api/session');if(r.authenticated){document.body.classList.add('authenticated');render();loadStatus();loadPlans()}else{document.querySelector('[name=email]').value=r.email||''}}catch{document.querySelector('#login-error').textContent='Anmeldeserver nicht erreichbar.'}}
 document.querySelector('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,button=form.querySelector('button'),error=document.querySelector('#login-error');button.disabled=true;error.textContent='';try{await api('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});form.elements.password.value='';document.body.classList.add('authenticated');render();loadStatus()}catch(err){error.textContent=err.message}finally{button.disabled=false}});
@@ -68,6 +69,6 @@ document.addEventListener('submit',async e=>{
  e.preventDefault();const form=e.target,button=form.querySelector('[type=submit]'),message=form.querySelector('#routing-message');
  const plan={line:form.elements.line.value,extension:form.elements.extension.value,enabled:form.elements.enabled.checked,start:form.elements.start.value,end:form.elements.end.value,days:[...form.querySelectorAll('[name=day]:checked')].map(x=>Number(x.value))};
  button.disabled=true;message.textContent='Speichere Planung …';
- try{const result=await api('/api/routing-plans',{method:'POST',body:JSON.stringify(plan)});routingPlans[result.plan.line]=result.plan;message.textContent='Planung gespeichert. Noch nicht in Asterisk aktiviert.'}
+ try{const result=await api('/api/routing-plans',{method:'POST',body:JSON.stringify(plan)});routingPlans[result.plan.line]=result.plan;const preview=await api('/api/routing-preview');routingPreview=preview;message.textContent='Planung gespeichert. Noch nicht in Asterisk aktiviert.';const current=form.elements.line.value;render();document.querySelector('#routing-form').elements.line.value=current;populatePlan(document.querySelector('#routing-form'));document.querySelector('#routing-message').textContent='Planung gespeichert. Noch nicht in Asterisk aktiviert.'}
  catch(err){message.textContent=err.message}finally{button.disabled=false}
 });
