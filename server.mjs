@@ -52,8 +52,8 @@ async function readAmiStatus(){
 
 async function amiCommand(command){
  const config=fs.readFileSync(process.env.AMI_CONFIG||'/run/secrets/ami.conf','utf8');
- const username=[...config.matchAll(/^\\[([^\\]]+)\\]/gm)].map(m=>m[1]).find(n=>n!=='general');
- const secret=/^secret\\s*=\\s*(\\S+)/m.exec(config)?.[1];
+ const username=[...config.matchAll(/^\[([^\]]+)\]/gm)].map(m=>m[1]).find(n=>n!=='general');
+ const secret=/^secret\s*=\s*(\S+)/m.exec(config)?.[1];
  if(!username||!secret)throw Error('AMI not configured');
  return await new Promise((resolve,reject)=>{
   const socket=net.createConnection({host:process.env.AMI_HOST||'tariq-telefonie-asterisk',port:5038});
@@ -65,16 +65,16 @@ async function amiCommand(command){
    buffer+=chunk.toString('utf8');
    if(buffer.length>200000) return finish(Error('AMI output too large'));
    if(stage===0&&buffer.includes('Asterisk Call Manager/')){
-    buffer='';stage=1;socket.write('Action: Login\\r\\nUsername: '+username+'\\r\\nSecret: '+secret+'\\r\\nEvents: off\\r\\n\\r\\n');
-   }else if(stage===1&&buffer.includes('\\r\\n\\r\\n')){
+    buffer='';stage=1;socket.write('Action: Login\r\nUsername: '+username+'\r\nSecret: '+secret+'\r\nEvents: off\r\n\r\n');
+   }else if(stage===1&&buffer.includes('\r\n\r\n')){
     if(!buffer.includes('Response: Success'))return finish(Error('AMI authentication failed'));
-    buffer='';stage=2;socket.write('Action: Command\\r\\nCommand: '+command+'\\r\\n\\r\\n');
+    buffer='';stage=2;socket.write('Action: Command\r\nCommand: '+command+'\r\n\r\n');
    }else if(stage===2&&buffer.includes('--END COMMAND--'))finish(null,buffer);
   });
  });
 }
 function parseRegistrations(output){
- return [...output.matchAll(/^\\s*(telekom-registration(?:-\\d+)?)\\/sip:tel\\.t-online\\.de\\s+\\S+\\s+(Registered|Unregistered|Rejected|Failed|Stopped)/gm)].map(m=>({id:m[1],status:m[2]}));
+ return [...output.matchAll(/^\s*(telekom-registration(?:-\d+)?)\/sip:tel\.t-online\.de\s+\S+\s+(Registered|Unregistered|Rejected|Failed|Stopped)/gm)].map(m=>({id:m[1],status:m[2]}));
 }
 async function readLivePbx(){
  const [registrations,endpoints,channels]=await Promise.all([
@@ -83,8 +83,8 @@ async function readLivePbx(){
   amiCommand('core show channels count')
  ]);
  const regs=parseRegistrations(registrations);
- const extensions=['100','101','102'].map(id=>({id,configured:new RegExp('Endpoint:\\s+'+id+'(?:\\s|/)').test(endpoints),online:new RegExp('Contact:.*'+id+'.*\\bAvail\\b').test(endpoints)}));
- const active=/(\\d+) active channels?/i.exec(channels)?.[1];
+ const extensions=['100','101','102'].map(id=>({id,configured:new RegExp('Endpoint:\s+'+id+'(?:\s|/)').test(endpoints),online:new RegExp('Contact:.*'+id+'.*\bAvail\b').test(endpoints)}));
+ const active=/(\d+) active channels?/i.exec(channels)?.[1];
  return {checkedAt:new Date().toISOString(),registrations:regs,extensions,activeChannels:active===undefined?null:Number(active)};
 }
 
