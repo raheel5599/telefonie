@@ -22,3 +22,8 @@ body.authenticated .auth-screen{display:none}
 .panel+.panel{margin-top:18px}
 .grid .panel+.panel{margin-top:0}
 @media(max-width:620px){.feature-grid{grid-template-columns:1fr}.item{flex-wrap:wrap}.item>.pill{margin-left:56px}}
+
+.field{display:flex;flex-direction:column;gap:9px;font-size:13px;color:#cbb783;margin:15px 0}
+.field input:not([type=checkbox]),.field select{width:100%;padding:12px;background:#0d1015;color:#f2f1ec;border:1px solid #414650;border-radius:9px;font:inherit}
+.field:has(input[type=checkbox]){flex-direction:row;align-items:center}
+.days{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.days label{border:1px solid #343a43;border-radius:9px;padding:9px;color:#cdd1d7;font-size:12px}
