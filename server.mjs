@@ -29,10 +29,27 @@ function validatePlan(raw){
  if(!allowedLines.includes(line)||!allowedExtensions.includes(extension))throw Error('Ungültige Rufnummer oder Nebenstelle');
  const enabled=raw.enabled===true;
  const start=String(raw.start||''),end=String(raw.end||'');
- if(!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(start)||!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(end)||start>=end)throw Error('Ungültige Öffnungszeiten');
+ if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(start)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(end)||start>=end)throw Error('Ungültige Öffnungszeiten');
  if(!Array.isArray(raw.days)||raw.days.some(d=>!Number.isInteger(d)||d<0||d>6))throw Error('Ungültige Wochentage');
  const days=[...new Set(raw.days)].sort();
  return {line,extension,enabled,days,start,end,updatedAt:new Date().toISOString(),applied:false};
+}
+
+
+function previewDialplan(){
+ const plans=readPlans(),entries=[];
+ for(const line of allowedLines){
+  const p=plans[line];
+  if(!p)continue;
+  const destination='PJSIP/'+p.extension;
+  const weekdays=['mon','tue','wed','thu','fri','sat','sun'];
+  const times=p.start.replace(':','')+'-'+p.end.replace(':','');
+  const days=p.days.map(i=>weekdays[i]).join('&');
+  entries.push({line,extension:p.extension,enabled:p.enabled,days:p.days,start:p.start,end:p.end,
+   description:p.enabled?'Zeitfenster '+p.start+'–'+p.end+' ('+days+'), sonst unveränderte bestehende Route':'Nur Rufziel-Entwurf, Zeitregel deaktiviert',
+   proposedRoute:'Dial('+destination+',30)',applied:false});
+ }
+ return {mode:'preview-only',applied:false,entries,warning:'Vorschau: Keine Änderungen an extensions.conf oder laufenden Gesprächen. Geschlossen-Ansage und Zeitregel werden noch nicht aktiviert.'};
 }
 
 function normalizeE164(raw){const value=String(raw||'').trim().replace(/[()\s/.-]/g,'');let number=value.startsWith('00')?'+'+value.slice(2):value;if(/^0[1-9]\d+$/.test(number))number='+49'+number.slice(1);if(!/^\+[1-9]\d{6,14}$/.test(number))throw Error('Bitte eine gültige internationale Rufnummer eingeben, z. B. +496031123456.');return number}
@@ -167,6 +184,10 @@ http.createServer(async(req,res)=>{
   return respond(res,200,{ok:true});
  }
 
+ if(pathname==='/api/routing-preview'&&req.method==='GET'){
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  return respond(res,200,previewDialplan());
+ }
  if(pathname==='/api/routing-plans'){
   if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
