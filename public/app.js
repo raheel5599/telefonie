@@ -1,6 +1,6 @@
 const main=document.querySelector('#main'),sidebar=document.querySelector('#sidebar');
 const nav=[...document.querySelectorAll('[data-page]')];
-let pbxStatus=null,storedNumbers=[];
+let pbxStatus=null,liveStatus=null,storedNumbers=[];
 const lines=[
  {label:'TARIQ Fahrdienst',e164:'+4960316868187',ext:'100',verified:true},
  {label:'TARIQ',e164:'+4960316843466',ext:'101',verified:false},
@@ -12,12 +12,12 @@ const panel=(title,content,subtitle='')=>'<section class="panel"><div class="pan
 const head=(title,description)=>'<section class="hero"><div><div class="eyebrow">TARIQ TELEFONIE · ZENTRALE</div><h1>'+title+'</h1><p>'+description+'</p></div><img class="hero-mark" src="/logo.png" alt=""></section>';
 const notice='<div class="warning">Die Rufnummern wurden in Asterisk registriert. Der aktuelle Registrierungsstatus und die Gesprächsdaten werden erst nach Anbindung der Live-Überwachung angezeigt. Änderungen an der Telefonanlage sind hier noch gesperrt.</div>';
 const row=(icon,title,sub,right='')=>'<div class="item"><span class="circle">'+icon+'</span><div class="item-text"><strong>'+esc(title)+'</strong><small>'+esc(sub)+'</small></div>'+right+'</div>';
-const lineRows=()=>lines.map(x=>row('☎',x.label,x.e164+' · Nebenstelle '+x.ext,pill(x.verified?'Anruf getestet':'Registrierung bestätigt',x.verified?'good':'neutral'))).join('');
+const lineRows=()=>lines.map((x,i)=>{const registration=liveStatus?.registrations?.find(r=>r.id===(i?'telekom-registration-'+(i+1):'telekom-registration'));const label=registration?(registration.status==='Registered'?'Live registriert':registration.status):(liveStatus?.monitoring==='connected'?'Nicht bestätigt':x.verified?'Anruf getestet · letzter Stand':'Registrierung zuletzt bestätigt');return row('☎',x.label,x.e164+' · Nebenstelle '+x.ext,pill(label,registration?.status==='Registered'?'good':'neutral'))}).join('');
 const stat=(name,value,sub)=>'<div class="stat"><div class="kicker">'+name+'</div><strong>'+value+'</strong><small>'+sub+'</small></div>';
 const monitor=()=>pbxStatus?.monitoring==='connected'?'Verbunden':pbxStatus?.monitoring==='unavailable'?'Nicht erreichbar':'Nicht geprüft';
 const screens={
  overview:()=>head('Telefonie im Überblick','Drei Telekom-Rufnummern, Nebenstellen und Systemverbindungen zentral verwalten.')+notice+
- '<div class="stats">'+stat('Telekom-Rufnummern','3','Zuletzt erfolgreich registriert')+stat('Nebenstellen','3','100 · 101 · 102 konfiguriert')+stat('Aktive Gespräche','—','Live-Abfrage noch nicht verfügbar')+stat('Asterisk AMI',esc(monitor()),'Verbindung zum Monitoring')+'</div>'+
+ '<div class="stats">'+stat('Telekom-Rufnummern',liveStatus?.registrations?.length??'3',liveStatus?.monitoring==='connected'?'Asterisk Live-Status':'Zuletzt erfolgreich registriert')+stat('Nebenstellen','3','100 · 101 · 102 konfiguriert')+stat('Aktive Kanäle',liveStatus?.activeChannels??'—',liveStatus?.activeChannels===null?'Live-Abfrage nicht verfügbar':'Asterisk Live-Daten')+stat('Asterisk AMI',esc(monitor()),'Verbindung zum Monitoring')+'</div>'+
  '<div class="grid">'+panel('Rufnummern & Zuordnung',lineRows(),'Telekom · Friedberg')+
  panel('Systemverbindungen',row('◉','Asterisk AMI',monitor(),pill(pbxStatus?.monitoring==='connected'?'Online':'Nicht bestätigt',pbxStatus?.monitoring==='connected'?'good':'neutral'))+
  row('⇄','WireGuard · Friedberg','SIP-Routing zuletzt erfolgreich getestet',pill('Zuletzt getestet'))+
@@ -49,8 +49,10 @@ nav.forEach(b=>b.addEventListener('click',()=>{location.hash=b.dataset.page;rend
 document.querySelector('#menu').addEventListener('click',()=>sidebar.classList.toggle('open'));
 window.addEventListener('hashchange',()=>{if(document.body.classList.contains('authenticated'))render()});
 async function api(url,options={}){const response=await fetch(url,{credentials:'same-origin',cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});const result=await response.json();if(!response.ok)throw Error(result.error||'Anfrage fehlgeschlagen');return result;}
-async function loadStatus(){try{pbxStatus=await api('/api/pbx/status')}catch{pbxStatus={monitoring:'unavailable'}}render();}
+async function loadStatus(){try{[pbxStatus,liveStatus]=await Promise.all([api('/api/pbx/status'),api('/api/pbx/live')])}catch{pbxStatus={monitoring:'unavailable'};liveStatus=null}render();}
 async function initialize(){try{const r=await api('/api/session');if(r.authenticated){document.body.classList.add('authenticated');render();loadStatus()}else{document.querySelector('[name=email]').value=r.email||''}}catch{document.querySelector('#login-error').textContent='Anmeldeserver nicht erreichbar.'}}
 document.querySelector('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,button=form.querySelector('button'),error=document.querySelector('#login-error');button.disabled=true;error.textContent='';try{await api('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});form.elements.password.value='';document.body.classList.add('authenticated');render();loadStatus()}catch(err){error.textContent=err.message}finally{button.disabled=false}});
-document.querySelector('#logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}catch{}document.body.classList.remove('authenticated');pbxStatus=null;document.querySelector('[name=password]').value='';});
+document.querySelector('#logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}catch{}document.body.classList.remove('authenticated');pbxStatus=null;liveStatus=null;document.querySelector('[name=password]').value='';});
 initialize();
+
+setInterval(()=>{if(document.body.classList.contains('authenticated'))loadStatus()},30000);
