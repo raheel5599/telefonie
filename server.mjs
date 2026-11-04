@@ -18,6 +18,23 @@ fs.mkdirSync(storeDir,{recursive:true,mode:0o700});
 const numbersPath=path.join(storeDir,'numbers.json');
 function readNumbers(){try{const data=JSON.parse(fs.readFileSync(numbersPath,'utf8'));return Array.isArray(data)?data:[]}catch(e){if(e.code==='ENOENT')return [];throw e}}
 function writeNumbers(numbers){const temp=numbersPath+'.'+process.pid+'.tmp';fs.writeFileSync(temp,JSON.stringify(numbers,null,2),{mode:0o600});fs.renameSync(temp,numbersPath)}
+
+const plansPath=path.join(storeDir,'routing-plans.json');
+const allowedLines=['+4960316868187','+4960316843466','+4960316871811'];
+const allowedExtensions=['100','101','102'];
+function readPlans(){try{const v=JSON.parse(fs.readFileSync(plansPath,'utf8'));return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch(e){if(e.code==='ENOENT')return {};throw e}}
+function validatePlan(raw){
+ if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('Ungültiger Plan');
+ const line=String(raw.line||''),extension=String(raw.extension||'');
+ if(!allowedLines.includes(line)||!allowedExtensions.includes(extension))throw Error('Ungültige Rufnummer oder Nebenstelle');
+ const enabled=raw.enabled===true;
+ const start=String(raw.start||''),end=String(raw.end||'');
+ if(!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(start)||!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(end)||start>=end)throw Error('Ungültige Öffnungszeiten');
+ if(!Array.isArray(raw.days)||raw.days.some(d=>!Number.isInteger(d)||d<0||d>6))throw Error('Ungültige Wochentage');
+ const days=[...new Set(raw.days)].sort();
+ return {line,extension,enabled,days,start,end,updatedAt:new Date().toISOString(),applied:false};
+}
+
 function normalizeE164(raw){const value=String(raw||'').trim().replace(/[()\s/.-]/g,'');let number=value.startsWith('00')?'+'+value.slice(2):value;if(/^0[1-9]\d+$/.test(number))number='+49'+number.slice(1);if(!/^\+[1-9]\d{6,14}$/.test(number))throw Error('Bitte eine gültige internationale Rufnummer eingeben, z. B. +496031123456.');return number}
 
 
@@ -148,6 +165,18 @@ http.createServer(async(req,res)=>{
   sessions.delete(cookie(req));
   res.setHeader('Set-Cookie','telefonie_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
   return respond(res,200,{ok:true});
+ }
+
+ if(pathname==='/api/routing-plans'){
+  if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  if(req.method==='GET')return respond(res,200,{plans:readPlans(),applied:false});
+  if(!checkPost(req))return respond(res,403,{error:'Ungültiger Ursprung'});
+  let plan;try{plan=validatePlan(await readBody(req))}catch(e){return respond(res,400,{error:e.message})}
+  const all=readPlans();all[plan.line]=plan;
+  const tmp=plansPath+'.'+process.pid+'.tmp';
+  fs.writeFileSync(tmp,JSON.stringify(all,null,2),{mode:0o600});fs.renameSync(tmp,plansPath);
+  return respond(res,200,{plan,applied:false});
  }
  if(pathname==='/api/pbx/live'&&req.method==='GET'){
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
