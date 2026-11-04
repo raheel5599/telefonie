@@ -49,6 +49,45 @@ async function readAmiStatus(){
  });
 }
 
+
+async function amiCommand(command){
+ const config=fs.readFileSync(process.env.AMI_CONFIG||'/run/secrets/ami.conf','utf8');
+ const username=[...config.matchAll(/^\\[([^\\]]+)\\]/gm)].map(m=>m[1]).find(n=>n!=='general');
+ const secret=/^secret\\s*=\\s*(\\S+)/m.exec(config)?.[1];
+ if(!username||!secret)throw Error('AMI not configured');
+ return await new Promise((resolve,reject)=>{
+  const socket=net.createConnection({host:process.env.AMI_HOST||'tariq-telefonie-asterisk',port:5038});
+  let stage=0,buffer='',finished=false;
+  const finish=(error,result)=>{if(finished)return;finished=true;socket.destroy();error?reject(error):resolve(result)};
+  socket.setTimeout(5000,()=>finish(Error('AMI timeout')));
+  socket.on('error',e=>finish(e));
+  socket.on('data',chunk=>{
+   buffer+=chunk.toString('utf8');
+   if(buffer.length>200000) return finish(Error('AMI output too large'));
+   if(stage===0&&buffer.includes('Asterisk Call Manager/')){
+    buffer='';stage=1;socket.write('Action: Login\\r\\nUsername: '+username+'\\r\\nSecret: '+secret+'\\r\\nEvents: off\\r\\n\\r\\n');
+   }else if(stage===1&&buffer.includes('\\r\\n\\r\\n')){
+    if(!buffer.includes('Response: Success'))return finish(Error('AMI authentication failed'));
+    buffer='';stage=2;socket.write('Action: Command\\r\\nCommand: '+command+'\\r\\n\\r\\n');
+   }else if(stage===2&&buffer.includes('--END COMMAND--'))finish(null,buffer);
+  });
+ });
+}
+function parseRegistrations(output){
+ return [...output.matchAll(/^\\s*(telekom-registration(?:-\\d+)?)\\/sip:tel\\.t-online\\.de\\s+\\S+\\s+(Registered|Unregistered|Rejected|Failed|Stopped)/gm)].map(m=>({id:m[1],status:m[2]}));
+}
+async function readLivePbx(){
+ const [registrations,endpoints,channels]=await Promise.all([
+  amiCommand('pjsip show registrations'),
+  amiCommand('pjsip show endpoints'),
+  amiCommand('core show channels count')
+ ]);
+ const regs=parseRegistrations(registrations);
+ const extensions=['100','101','102'].map(id=>({id,configured:new RegExp('Endpoint:\\s+'+id+'(?:\\s|/)').test(endpoints),online:new RegExp('Contact:.*'+id+'.*\\bAvail\\b').test(endpoints)}));
+ const active=/(\\d+) active channels?/i.exec(channels)?.[1];
+ return {checkedAt:new Date().toISOString(),registrations:regs,extensions,activeChannels:active===undefined?null:Number(active)};
+}
+
 const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js'};
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png'};
 const respond=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(body))};
@@ -109,6 +148,10 @@ http.createServer(async(req,res)=>{
   sessions.delete(cookie(req));
   res.setHeader('Set-Cookie','telefonie_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
   return respond(res,200,{ok:true});
+ }
+ if(pathname==='/api/pbx/live'&&req.method==='GET'){
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  try{return respond(res,200,{monitoring:'connected',...(await readLivePbx())})}catch{return respond(res,200,{monitoring:'unavailable',registrations:[],extensions:[],activeChannels:null,note:'Asterisk-Live-Abfrage nicht verfügbar'})}
  }
  if(pathname==='/api/pbx/status'&&req.method==='GET'){
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
