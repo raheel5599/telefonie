@@ -1,4 +1,5 @@
 import http from 'node:http';
+import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -111,7 +112,7 @@ http.createServer(async(req,res)=>{
  }
  if(pathname==='/api/pbx/status'&&req.method==='GET'){
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
-  try{const status=await readAmiStatus();return respond(res,200,{engine:'Asterisk 22',monitoring:'connected',asterisk:status,telekomSip:'not-configured',friedbergRoute:'not-configured',sipRegistrations:[]});}catch(e){return respond(res,200,{engine:'Asterisk 22',monitoring:'unavailable',telekomSip:'not-configured',friedbergRoute:'not-configured',sipRegistrations:[],note:'AMI-Status derzeit nicht erreichbar'});}
+  try{const status=await readAmiStatus();return respond(res,200,{engine:'Asterisk 22',monitoring:'connected',asterisk:status,telekomSip:'last-confirmed',friedbergRoute:'last-confirmed',sipRegistrations:[]});}catch(e){return respond(res,200,{engine:'Asterisk 22',monitoring:'unavailable',telekomSip:'last-confirmed',friedbergRoute:'last-confirmed',sipRegistrations:[],note:'AMI-Status derzeit nicht erreichbar'});}
  }
  if(pathname==='/api/numbers'){
   if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});
