@@ -78,6 +78,12 @@ def collect():
                 status[name] = value
         except (subprocess.SubprocessError, ValueError, OSError):
             status['errors'].append(name)
+    from pbx_routing import routing_tick
+    try:
+        route_status = routing_tick()
+        print('Rufziel-Service: ' + ('bereit' if route_status['available'] else route_status.get('note', 'nicht bereit')))
+    except (subprocess.SubprocessError, ValueError, OSError):
+        print('Rufziel-Service derzeit nicht verfügbar.')
     status['monitoring'] = 'connected' if not status['errors'] else 'partial'
     # No caller numbers, credentials, CLI output or Docker socket enter the web app.
     writer = "const fs=require('fs');let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>{JSON.parse(s);fs.writeFileSync('/data/pbx-status.json.tmp',s,{mode:0o600});fs.renameSync('/data/pbx-status.json.tmp','/data/pbx-status.json')});"
