@@ -41,6 +41,7 @@ jobs:
           node tests/test-hours-ui.mjs
           node tests/test-speech.mjs
           node tests/test-call-history.mjs
+          node tests/test-number-profiles.mjs
           python3 -m unittest discover -s tests -p "test_*.py"
 
 
@@ -105,5 +106,6 @@ jobs:
             python3 deployment/collect-pbx-status.py --install-cron
 
           '
+
 
 

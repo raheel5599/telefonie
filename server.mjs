@@ -18,7 +18,30 @@ const storeDir=process.env.DATA_DIR||path.join(root,'data');
 fs.mkdirSync(storeDir,{recursive:true,mode:0o700});
 const speech=createSpeechService(storeDir);
 const numbersPath=path.join(storeDir,'numbers.json');
-function readNumbers(){try{const data=JSON.parse(fs.readFileSync(numbersPath,'utf8'));return Array.isArray(data)?data:[]}catch(e){if(e.code==='ENOENT')return [];throw e}}
+function readStoredNumbers(){try{const data=JSON.parse(fs.readFileSync(numbersPath,'utf8'));return Array.isArray(data)?data:[]}catch(e){if(e.code==='ENOENT')return [];throw e}}
+const numberDefaults=[
+ {e164:'+4960316868187',label:'TARIQ Fahrdienst',extension:'100'},
+ {e164:'+4960316843466',label:'TARIQ',extension:'101'},
+ {e164:'+4960316871811',label:'TARIQ Zulassungsservice',extension:'102'}
+];
+function validNumberLabel(value){
+ if(typeof value!=='string'||/[\x00-\x1f\x7f]/.test(value))throw Error('Bitte eine gültige Bezeichnung eingeben.');
+ const label=value.trim().replace(/\s+/g,' ');
+ if(!label||label.length>60)throw Error('Die Bezeichnung muss 1 bis 60 Zeichen enthalten.');
+ return label;
+}
+function readNumbers(){
+ const saved=readStoredNumbers();
+ return numberDefaults.map(base=>{const row=saved.find(n=>n?.e164===base.e164);let label=base.label;
+  if(row)try{label=validNumberLabel(row.label)}catch{}
+  return {...base,label};
+ });
+}
+function saveNumberProfile(input){
+ if(!input||!numberDefaults.some(n=>n.e164===input.line))throw Error('Diese Rufnummer ist nicht eingerichtet.');
+ const label=validNumberLabel(input.label),numbers=readNumbers();
+ const number=numbers.find(n=>n.e164===input.line);number.label=label;writeNumbers(numbers);return number;
+}
 function writeNumbers(numbers){const temp=numbersPath+'.'+process.pid+'.tmp';fs.writeFileSync(temp,JSON.stringify(numbers,null,2),{mode:0o600});fs.renameSync(temp,numbersPath)}
 
 const plansPath=path.join(storeDir,'routing-plans.json');
@@ -191,7 +214,8 @@ function queryCallHistory(params,now=Date.now()){
  const age=now-Date.parse(data.checkedAt),fresh=Number.isFinite(age)&&age>=-10000&&age<=180000;
  const source={...data.source,checkedAt:data.checkedAt||null,
   status:data.source?.available?(fresh?'connected':'stale'):'unavailable'};
- let selected=(Array.isArray(data.calls)?data.calls:[]).filter(row=>row&&Number.isFinite(Date.parse(row.startedAt))&&Date.parse(row.startedAt)>=now-days*86400000);
+ const labels=new Map(readNumbers().map(n=>[n.e164,n.label]));
+ let selected=(Array.isArray(data.calls)?data.calls:[]).map(row=>row?{...row,companyLabel:labels.get(row.company)||row.companyLabel}:row).filter(row=>row&&Number.isFinite(Date.parse(row.startedAt))&&Date.parse(row.startedAt)>=now-days*86400000);
  if(company!=='all')selected=selected.filter(row=>row.company===company);
  if(q){
   const numeric=/^[+0-9\s()./\-]+$/.test(q);
@@ -357,16 +381,11 @@ http.createServer(async(req,res)=>{
  if(pathname==='/api/numbers'){
   if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
-  if(req.method==='GET')return respond(res,200,{numbers:readNumbers(),sipConnected:false});
+  if(req.method==='GET')return respond(res,200,{numbers:readNumbers()});
   if(!checkPost(req))return respond(res,403,{error:'Ungültiger Ursprung'});
   const input=await readBody(req);
-  if(!Array.isArray(input.numbers)||input.numbers.length>3)return respond(res,400,{error:'Maximal drei Rufnummern'});
-  let prepared;
-  try{
-    prepared=input.numbers.map((row,i)=>({id:i+1,label:String(row.label||'Rufnummer '+(i+1)).trim().slice(0,60),e164:normalizeE164(row.number)}));
-    if(new Set(prepared.map(n=>n.e164)).size!==prepared.length)throw Error('Doppelte Rufnummer');
-  }catch(err){return respond(res,400,{error:err.message})}
-  writeNumbers(prepared);return respond(res,200,{numbers:prepared,sipConnected:false});
+  try{const number=saveNumberProfile(input);return respond(res,200,{number,numbers:readNumbers()})}
+  catch(err){return respond(res,400,{error:err.message})}
  }
  if(pathname.startsWith('/api/'))return respond(res,404,{error:'Nicht gefunden'});
  if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405).end();return}
@@ -378,4 +397,5 @@ http.createServer(async(req,res)=>{
  });
  }catch{respond(res,400,{error:'Anfrage konnte nicht verarbeitet werden'})}
 }).listen(Number(process.env.PORT)||3095,'0.0.0.0');
+
 

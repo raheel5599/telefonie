@@ -20,6 +20,7 @@ jobs:
           node tests/test-hours-ui.mjs
           node tests/test-speech.mjs
           node tests/test-call-history.mjs
+          node tests/test-number-profiles.mjs
 
       - name: Ansagenformat prüfen
         run: |
@@ -32,3 +33,4 @@ jobs:
           docker build -f deployment/Dockerfile.web -t tariq-telefonie-speech:test .
           mkdir -p /tmp/telefonie-speech-test
           docker run --rm --network none -v "$PWD:/app:ro" -v /tmp/telefonie-speech-test:/data tariq-telefonie-speech:test node tests/test-speech-runtime.mjs
+

@@ -1,5 +1,6 @@
 const main=document.querySelector('#main'),sidebar=document.querySelector('#sidebar');
 const nav=[...document.querySelectorAll('[data-page]')];
+let numberDrafts={},numberMessage='',numberSaving=false,numbersReady=false;
 let announcementTexts={},voiceDrafts={},voiceGenerating=false,voiceMessage='';
 let hoursLine='+4960316868187',hoursDraft={};
 let routeTypeDraft={},routePhoneDraft={},routeExtensionDraft={};
@@ -12,6 +13,7 @@ const lines=[
  {label:'TARIQ',e164:'+4960316843466',ext:'101',verified:false},
  {label:'TARIQ Zulassungsservice',e164:'+4960316871811',ext:'102',verified:false}
 ];
+lines.forEach(x=>x.defaultLabel=x.label);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pill=(text,kind='neutral')=>'<span class="pill '+kind+'">'+esc(text)+'</span>';
 const panel=(title,content,subtitle='')=>'<section class="panel"><div class="panel-head"><h2>'+title+'</h2><small>'+subtitle+'</small></div>'+content+'</section>';
@@ -76,7 +78,7 @@ function profileFor(line){
  return {enabled:p.enabled,closedToday:!!p.closedDate&&p.closedDate===routingState?.today,week:p.week.map(d=>({...d}))};
 }
 
-const standardAnnouncement=line=>'Willkommen bei '+line.label+'. Sie rufen außerhalb unserer Öffnungszeiten an. Bitte versuchen Sie es zu unseren Geschäftszeiten erneut. Vielen Dank.';
+const standardAnnouncement=line=>'Willkommen bei '+(line.defaultLabel||line.label)+'. Sie rufen außerhalb unserer Öffnungszeiten an. Bitte versuchen Sie es zu unseren Geschäftszeiten erneut. Vielen Dank.';
 const cleanVoiceText=text=>String(text||'').trim().replace(/\s+/g,' ');
 function announcementForm(line){
  const active=routingState?.announcements?.[line.e164];
@@ -145,9 +147,13 @@ const screens={
  panel('Systemverbindungen',row('◉','Asterisk AMI',monitor(),pill(pbxStatus?.monitoring==='connected'?'Online':'Nicht bestätigt',pbxStatus?.monitoring==='connected'?'good':'neutral'))+
  row('⇄','WireGuard · Friedberg','SIP-Routing zuletzt erfolgreich getestet',pill('Zuletzt getestet'))+
  row('◈','Telefonie-Web-App','Browser-Telefonie in Vorbereitung',pill('Geplant')),'Statusübersicht')+'</div>',
- numbers:()=>head('Rufnummern','Alle drei Telekom-Rufnummern und ihre Zuordnung im Überblick.')+
+ numbers:()=>head('Rufnummern','Deine Telekom-Rufnummern, Firmenbezeichnungen und Rufziele zentral verwalten.')+
  panel('Telekom · Rufnummern',lineRows(),'3 Registrierungen')+
- panel('Rufnummernverwaltung','<div class="panel-pad"><p class="page-text">Die Zuordnung wird derzeit in Asterisk verwaltet. Änderungen über das Portal werden erst mit sicherer PBX-Synchronisierung freigeschaltet, damit die laufende Telefonie unverändert bleibt.</p></div>'),
+ panel('Rufnummernverwaltung','<div class="panel-pad"><p class="page-text">Bezeichnungen bearbeiten und Rufziele, Öffnungszeiten und Ansagen für jede Firma verwalten.</p><p class="forward-message" role="status" aria-live="polite">'+esc(numberMessage)+'</p><div class="number-grid">'+lines.map(x=>{
+  const target=activeRoute(x),hours=routingState?.hours?.[x.e164];
+  const state=!routingState?.available?'Status derzeit nicht abrufbar':hours?.closedDate===routingState.today?'Heute manuell geschlossen':hours?.enabled?(routingState.open?.[x.e164]?'Geöffnet · Wochenplan aktiv':'Geschlossen · Wochenplan aktiv'):'Ohne Wochenplan erreichbar';
+  return '<article class="number-card"><div class="number-heading"><span class="circle">☎</span><div><h3>'+esc(x.label)+'</h3><p>'+esc(x.e164)+'</p></div></div><form class="number-profile-form" data-line="'+x.e164+'"><label class="field">Firmenbezeichnung<input name="label" maxlength="60" required value="'+esc(numberDrafts[x.e164]??x.label)+'" '+(!numbersReady||numberSaving?'disabled':'')+'></label><button class="save-number" type="submit" '+(!numbersReady||numberSaving?'disabled':'')+'>Bezeichnung speichern</button></form><dl class="number-details"><div><dt>Aktuelles Rufziel</dt><dd>'+esc(target?targetLabel(target):'Derzeit nicht abrufbar')+'</dd></div><div><dt>Erreichbarkeit</dt><dd>'+esc(state)+'</dd></div></dl><div class="number-actions"><a href="#forwards">Weiterleitung bearbeiten ↗</a><a href="#hours" data-number-hours="'+x.e164+'">Öffnungszeiten & Ansage ↗</a></div></article>';
+ }).join('')+'</div><p class="page-text">Die Bezeichnung wird in der Übersicht und Anrufliste übernommen. Ansagetexte bearbeitest du unter Öffnungszeiten & Ansagen.</p></div>'),
  forwards:forwardView,
  extensions:()=>head('Nebenstellen','Interne Anschlüsse und Softphones unserer Telefonanlage.')+
  panel('SIP-Nebenstellen',lines.map(x=>{const e=liveReady()?liveStatus.extensions?.find(e=>e.id===x.ext):null;const label=!e?'Status unbekannt':!e.configured?'Nicht eingerichtet':e.online===true?'Erreichbar':e.online===null?'Angemeldet · nicht geprüft':'Nicht erreichbar';return row('♧',x.ext+' · '+x.label,e?.registered?'Endgerät angemeldet':'SIP-Nebenstelle',pill(label,e?.online===true?'good':'neutral'))}).join(''),'Aktueller Gerätestatus')+
@@ -170,12 +176,12 @@ async function loadStatus(){
  if(statusLoading)return;statusLoading=true;
  const button=document.querySelector('#refresh-status');if(button)button.disabled=true;
  try{const [pbx,live]=await Promise.allSettled([api('/api/pbx/status'),api('/api/pbx/live')]);pbxStatus=pbx.status==='fulfilled'?pbx.value:{monitoring:'unavailable'};liveStatus=live.status==='fulfilled'?live.value:null;
- if(!document.querySelector('#routing-form')&&!document.querySelector('.forward-form')&&!document.querySelector('.hours-form')&&!document.querySelector('.call-controls')&&document.body.classList.contains('authenticated'))render();
+ if(!document.querySelector('#routing-form')&&!document.querySelector('.forward-form')&&!document.querySelector('.hours-form')&&!document.querySelector('.call-controls')&&(!document.querySelector('.number-profile-form')||!document.activeElement?.closest('.number-profile-form'))&&document.body.classList.contains('authenticated'))render();
  }finally{statusLoading=false;if(button?.isConnected)button.disabled=false}
 }
 main.addEventListener('click',e=>{if(e.target.closest('#refresh-status'))loadStatus()});
-async function initialize(){try{const r=await api('/api/session');if(r.authenticated){document.body.classList.add('authenticated');render();loadStatus();loadRoutes()}else{document.querySelector('[name=email]').value=r.email||''}}catch{document.querySelector('#login-error').textContent='Anmeldeserver nicht erreichbar.'}}
-document.querySelector('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,button=form.querySelector('button'),error=document.querySelector('#login-error');button.disabled=true;error.textContent='';try{await api('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});form.elements.password.value='';document.body.classList.add('authenticated');render();loadStatus();loadRoutes()}catch(err){error.textContent=err.message}finally{button.disabled=false}});
+async function initialize(){try{const r=await api('/api/session');if(r.authenticated){document.body.classList.add('authenticated');render();loadStatus();loadRoutes();loadNumberProfiles()}else{document.querySelector('[name=email]').value=r.email||''}}catch{document.querySelector('#login-error').textContent='Anmeldeserver nicht erreichbar.'}}
+document.querySelector('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,button=form.querySelector('button'),error=document.querySelector('#login-error');button.disabled=true;error.textContent='';try{await api('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});form.elements.password.value='';document.body.classList.add('authenticated');render();loadStatus();loadRoutes();loadNumberProfiles()}catch(err){error.textContent=err.message}finally{button.disabled=false}});
 document.querySelector('#logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}catch{}document.body.classList.remove('authenticated');pbxStatus=null;liveStatus=null;callCache=null;callError='';++callRequestVersion;callsLoading=false;callFilters={filter:'all',company:'all',days:'30',q:'',page:1};document.querySelector('[name=password]').value='';});
 initialize();
 
@@ -201,8 +207,8 @@ async function loadRoutes(){
    window.pendingHoursLine=null;
    window.pendingRouteId=null;
   }
-  if(['#forwards','#hours'].includes(location.hash)&&document.body.classList.contains('authenticated')&&!document.activeElement?.closest('.forward-form')&&!document.activeElement?.closest('.hours-form')&&!document.activeElement?.closest('.announcement-form')&&document.querySelector('audio')?.paused!==false)render();
- }catch{routingState={available:false,note:'Rufziele derzeit nicht abrufbar.'};if(['#forwards','#hours'].includes(location.hash))render()}
+  if(['#forwards','#hours','#numbers'].includes(location.hash)&&document.body.classList.contains('authenticated')&&!document.activeElement?.closest('.forward-form')&&!document.activeElement?.closest('.hours-form')&&!document.activeElement?.closest('.announcement-form')&&!document.activeElement?.closest('.number-profile-form')&&document.querySelector('audio')?.paused!==false)render();
+ }catch{routingState={available:false,note:'Rufziele derzeit nicht abrufbar.'};if(['#forwards','#hours','#numbers'].includes(location.hash))render()}
  finally{routesLoading=false}
 }
 function updateForwardDraft(form){
@@ -235,11 +241,11 @@ document.addEventListener('submit',async e=>{
   const result=await api('/api/pbx/routing',{method:'POST',body:JSON.stringify({revision:routingState.revision,mappings})});
   window.pendingRouteId=result.id;routeMessage=result.message;await loadRoutes();
  }catch(err){routeBusy=false;routeMessage=err.message;await loadRoutes()}
- if(['#forwards','#hours'].includes(location.hash))render();
+ if(['#forwards','#hours','#numbers'].includes(location.hash))render();
 });
 setInterval(()=>{if(document.body.classList.contains('authenticated')&&(routeBusy||routingState?.pending))loadRoutes()},5000);
 setInterval(()=>{if(document.body.classList.contains('authenticated'))loadRoutes()},30000);
-window.addEventListener('hashchange',()=>{if(['#forwards','#hours'].includes(location.hash)&&document.body.classList.contains('authenticated'))loadRoutes()});
+window.addEventListener('hashchange',()=>{if(['#forwards','#hours','#numbers'].includes(location.hash)&&document.body.classList.contains('authenticated'))loadRoutes()});
 
 function captureHours(form){
  return {enabled:form.elements.hoursEnabled.checked,closedToday:form.elements.closedToday.checked,
@@ -331,3 +337,21 @@ main.addEventListener('change',e=>{
 document.addEventListener('submit',e=>{if(e.target.id==='call-search-form'){e.preventDefault();clearTimeout(callSearchTimer);callFilters.page=1;loadCallHistory(true)}});
 window.addEventListener('hashchange',()=>{if(location.hash==='#calls'&&document.body.classList.contains('authenticated'))loadCallHistory()});
 setInterval(()=>{if(location.hash==='#calls'&&document.body.classList.contains('authenticated'))loadCallHistory()},30000);
+
+
+function applyNumberProfiles(numbers){
+ for(const row of numbers||[]){const line=lines.find(x=>x.e164===row.e164);if(line)line.label=row.label}
+}
+async function loadNumberProfiles(){
+ try{const data=await api('/api/numbers');applyNumberProfiles(data.numbers);numbersReady=true;numberMessage='';}
+ catch{numbersReady=false;numberMessage='Bezeichnungen konnten nicht geladen werden. Bitte die Seite neu laden.'}
+ if(location.hash==='#numbers'&&!document.activeElement?.closest('.number-profile-form'))render();
+}
+main.addEventListener('input',e=>{const form=e.target.closest('.number-profile-form');if(form)numberDrafts[form.dataset.line]=form.elements.label.value});
+main.addEventListener('click',e=>{const link=e.target.closest('[data-number-hours]');if(link)hoursLine=link.dataset.numberHours});
+main.addEventListener('submit',async e=>{
+ const form=e.target.closest('.number-profile-form');if(!form)return;e.preventDefault();if(numberSaving||!numbersReady)return;
+ const line=form.dataset.line,label=form.elements.label.value;numberDrafts[line]=label;numberSaving=true;numberMessage='Bezeichnung wird gespeichert …';render();
+ try{const data=await api('/api/numbers',{method:'POST',body:JSON.stringify({line,label})});applyNumberProfiles(data.numbers);delete numberDrafts[line];callCache=null;numberMessage='Bezeichnung gespeichert.'}
+ catch(err){numberMessage=err.message}finally{numberSaving=false;if(location.hash==='#numbers')render()}
+});

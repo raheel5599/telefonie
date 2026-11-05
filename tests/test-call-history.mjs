@@ -11,10 +11,12 @@ let data={checkedAt:new Date(now).toISOString(),source:{available:true},calls:[
  {id:'outgoing',direction:'outgoing',from:'101',to:'+493012345678',company:'+4960316843466',companyLabel:'TARIQ',startedAt,status:'answered',missed:false,billsec:20},
 ]};
 const env=vm.createContext({fs:{readFileSync:()=>JSON.stringify(data)},path:{join:()=>''},storeDir:'/data',Date,
+ readNumbers:()=>[{e164:'+4960316868187',label:'Fahrdienst Büro'}],
  allowedLines:['+4960316868187','+4960316843466','+4960316871811']});
 vm.runInContext(code,env);
 function query(values={}){env.params=new URLSearchParams(values);env.now=now;return vm.runInContext('queryCallHistory(params,now)',env)}
 assert.equal(query().total,3);
+assert.equal(query({q:'Fahrdienst Büro'}).calls[0].companyLabel,'Fahrdienst Büro');
 assert.equal(query({filter:'missed'}).calls[0].id,'missed');
 assert.equal(query({filter:'outgoing'}).total,1);
 assert.equal(query({company:'+4960316868187'}).total,1);
@@ -40,3 +42,4 @@ html=vm.runInContext('screens.calls()',ctx);
 assert(html.includes('Anonym'));
 assert(html.includes('Verpasst'));
 console.log('Call history filters, search, pagination, stale data and UI rendering tests passed.');
+
