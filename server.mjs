@@ -100,6 +100,34 @@ function readLivePbx(){
 }
 
 
+
+
+function audioRange(value,length){
+ if(!value)return null;
+ const m=/^bytes=(\d*)-(\d*)$/.exec(value);
+ if(!m||(!m[1]&&!m[2]))throw Error('Ungültiger Bereich');
+ const start=m[1]?Number(m[1]):Math.max(0,length-Number(m[2]));
+ const end=m[1]?(m[2]?Math.min(Number(m[2]),length-1):length-1):length-1;
+ if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||start>=length||end<start||(!m[1]&&Number(m[2])<=0))throw Error('Ungültiger Bereich');
+ return {start,end};
+}
+
+function todayBerlin(){
+ const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+ const value=type=>parts.find(p=>p.type===type).value;
+ return value('year')+'-'+value('month')+'-'+value('day');
+}
+function validateHours(raw){
+ if(!raw||typeof raw!=='object'||Array.isArray(raw)||typeof raw.enabled!=='boolean'||typeof raw.closedToday!=='boolean')throw Error('Ungültiger Öffnungszeiten-Plan.');
+ if(!Array.isArray(raw.week)||raw.week.length!==7)throw Error('Bitte alle sieben Wochentage angeben.');
+ const week=raw.week.map(day=>{
+  if(!day||typeof day.enabled!=='boolean'||typeof day.start!=='string'||typeof day.end!=='string'||
+   !/^([01]\d|2[0-3]):[0-5]\d$/.test(day.start)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(day.end)||day.start>=day.end)throw Error('Die Endzeit muss nach der Startzeit liegen. Nachtzeiten bitte auf zwei Tage aufteilen.');
+  return {enabled:day.enabled,start:day.start,end:day.end};
+ });
+ return {enabled:raw.enabled,closedDate:raw.closedToday?todayBerlin():null,week};
+}
+
 function readRouting(){
  let value;
  try{value=JSON.parse(fs.readFileSync(path.join(storeDir,'pbx-routing.json'),'utf8'))}catch{return {available:false,mappings:{},note:'Rufziel-Service wird vorbereitet.'}}
@@ -109,20 +137,25 @@ function readRouting(){
  try{const r=JSON.parse(fs.readFileSync(path.join(storeDir,'pbx-routing-request.json'),'utf8'));pending={id:r.id,createdAt:r.createdAt}}catch{}
  return {...value,pending};
 }
-function queueRouting(input){
+function queueRouting(input,kind='routing'){
  const status=readRouting();
  if(!status.available)throw Error(status.note||'Rufziel-Service nicht bereit.');
  if(status.pending)throw Error('Eine Änderung wird bereits übernommen.');
  if(!input||typeof input!=='object'||input.revision!==status.revision)throw Error('Zuordnung wurde verändert. Bitte neu laden.');
- const mappings=input.mappings;
+ let mappings=input.mappings;let hours=status.hours||{};
+ if(kind==='hours'){
+  if(!status.hoursReady)throw Error('Die Geschlossen-Ansagen sind noch nicht bereit.');
+  if(!allowedLines.includes(input.line))throw Error('Ungültige Rufnummer.');
+  mappings=status.mappings;hours={...hours,[input.line]:validateHours(input.profile)};
+ }
  if(!mappings||typeof mappings!=='object'||Array.isArray(mappings)||
   Object.keys(mappings).length!==allowedLines.length||
   allowedLines.some(line=>!Object.hasOwn(mappings,line)||!allowedExtensions.includes(mappings[line])))throw Error('Ungültige Rufziel-Zuordnung.');
- const request={id:randomBytes(16).toString('hex'),createdAt:new Date().toISOString(),revision:status.revision,mappings};
+ const request={id:randomBytes(16).toString('hex'),createdAt:new Date().toISOString(),revision:status.revision,mappings,hours,kind,line:kind==='hours'?input.line:null};
  const pending=path.join(storeDir,'pbx-routing-request.json'),temp=pending+'.'+request.id;
  fs.writeFileSync(temp,JSON.stringify(request),{mode:0o600,flag:'wx'});
  try{fs.linkSync(temp,pending)}finally{fs.unlinkSync(temp)}
- return {id:request.id,state:'pending',message:'Rufziele werden innerhalb einer Minute übernommen.'};
+ return {id:request.id,state:'pending',message:'Einstellungen werden innerhalb einer Minute übernommen.'};
 }
 
 const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js'};
@@ -188,6 +221,30 @@ http.createServer(async(req,res)=>{
  }
 
 
+
+ if(pathname==='/api/pbx/hours'){
+  if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  if(req.method==='GET')return respond(res,200,{...readRouting(),drafts:readPlans()});
+  if(!checkPost(req))return respond(res,403,{error:'Ungültiger Ursprung'});
+  try{return respond(res,202,queueRouting(await readBody(req),'hours'))}catch(e){return respond(res,409,{error:e.code==='EEXIST'?'Eine Änderung wird bereits übernommen.':e.message})}
+ }
+ if(pathname==='/api/pbx/announcement'&&['GET','HEAD'].includes(req.method)){
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  const line=new URL(req.url,'http://localhost').searchParams.get('line');
+  const index=allowedLines.indexOf(line);
+  if(index<0)return respond(res,400,{error:'Ungültige Rufnummer'});
+  try{
+   const data=fs.readFileSync(path.join(pub,'audio','tariq-closed-'+(index+1)+'.wav'));
+   let range;
+   try{range=audioRange(req.headers.range,data.length)}catch{res.writeHead(416,{'Content-Range':'bytes */'+data.length});return res.end()}
+   const headers={'Content-Type':'audio/wav','Content-Length':range?range.end-range.start+1:data.length,'Accept-Ranges':'bytes','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'};
+   if(range)headers['Content-Range']='bytes '+range.start+'-'+range.end+'/'+data.length;
+   res.writeHead(range?206:200,headers);
+   return res.end(req.method==='HEAD'?'':range?data.subarray(range.start,range.end+1):data);
+  }catch{return respond(res,404,{error:'Ansage wird vorbereitet'})}
+ }
+
  if(pathname==='/api/pbx/routing'){
   if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
@@ -238,7 +295,7 @@ http.createServer(async(req,res)=>{
  const file=pathname==='/logo.png'?logo:path.join(pub,files[pathname]||'__404__');
  fs.readFile(file,(err,buf)=>{
   if(err){res.writeHead(404).end('Not found');return}
-  res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"});
+  res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; media-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"});
   res.end(req.method==='HEAD'?'':buf);
  });
  }catch{respond(res,400,{error:'Anfrage konnte nicht verarbeitet werden'})}

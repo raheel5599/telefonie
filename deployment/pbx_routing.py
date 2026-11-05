@@ -6,6 +6,9 @@ import pathlib
 import os
 import re
 import subprocess
+import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from business_hours import all_profiles, compile_program, is_open, TZ
 
 LINES = ('+4960316868187', '+4960316843466', '+4960316871811')
 EXTENSIONS = ('100', '101', '102')
@@ -40,13 +43,13 @@ def validate_mappings(mappings):
         raise ValueError('Nur Nebenstellen 100, 101 und 102 sind erlaubt.')
     return dict(mappings)
 
-def revision(mappings):
-    return hashlib.sha256(json.dumps(mappings, sort_keys=True).encode()).hexdigest()
+def revision(mappings, profiles=None):
+    value = mappings if profiles is None else {'mappings': mappings, 'hours': profiles}
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
-def parse_live(output):
-    routes = {}
-    context = None
-    line = None
+def parse_programs(output):
+    result = {}
+    context = line = None
     for text in output.splitlines():
         m = re.match(r"\[ Context '([^']+)'", text)
         if m:
@@ -54,21 +57,58 @@ def parse_live(output):
         m = re.match(r"\s*'([^']+)'\s*=>", text)
         if m:
             line = m[1]
-        m = re.search(r'\b2\.\s+Dial\(PJSIP/(100|101|102),30\)', text)
-        if m and line in CONTEXTS and context in CONTEXTS[line]:
-            routes[(line, context)] = m[1]
-    for number, contexts in CONTEXTS.items():
-        if any((number, c) not in routes for c in contexts):
-            raise ValueError('Bestehende Rufverteilung ist nicht eindeutig lesbar.')
-        if len({routes[(number, c)] for c in contexts}) != 1:
-            raise ValueError('Abweichende Ziele in den Eingangskontexten.')
-    return {number: routes[(number, contexts[0])] for number, contexts in CONTEXTS.items()}
+        m = re.search(r'\b(\d+)\.\s+([A-Za-z][A-Za-z0-9]*)\((.*)\)', text)
+        if m and context and line:
+            result.setdefault((context, line), {})[int(m[1])] = m[2] + '(' + m[3] + ')'
+    return result
 
-def rewrite_config(text, mappings):
-    validate_mappings(mappings)
-    result = []
-    counts = {(line, context): 0 for line, contexts in CONTEXTS.items() for context in contexts}
-    context, line = None, None
+def incoming_apps(output):
+    programs = parse_programs(output)
+    result = {}
+    for number, contexts in CONTEXTS.items():
+        apps = [programs.get((context, number), {}).get(2) for context in contexts]
+        if not all(apps) or len(set(apps)) != 1:
+            raise ValueError('Bestehende Rufverteilung ist nicht eindeutig lesbar.')
+        app = apps[0]
+        if not re.fullmatch(r'Dial\(PJSIP/(100|101|102),30\)', app) and not re.fullmatch(
+                r'Gosub\(tariq-hours-[a-f0-9]{12},' + re.escape(number) + r',1\)', app):
+            raise ValueError('Unerwartete Eingangsregel.')
+        result[number] = app
+    return result
+
+def parse_live(output):
+    programs = parse_programs(output)
+    result = {}
+    for number, app in incoming_apps(output).items():
+        m = re.fullmatch(r'Dial\(PJSIP/(100|101|102),30\)', app)
+        if m:
+            result[number] = m[1]
+        else:
+            context = app.split('(', 1)[1].split(',', 1)[0]
+            targets = [re.fullmatch(r'Dial\(PJSIP/(100|101|102),30\)', a)
+                       for a in programs.get((context, number), {}).values()]
+            targets = [m[1] for m in targets if m]
+            if len(targets) != 1:
+                raise ValueError('Zeitregel enthält kein eindeutiges Rufziel.')
+            result[number] = targets[0]
+    return result
+
+def strip_managed(text):
+    begin, end = '; BEGIN TARIQ WEB HOURS V1', '; END TARIQ WEB HOURS V1'
+    if begin not in text and end not in text:
+        return text
+    if text.count(begin) != 1 or text.count(end) != 1:
+        raise ValueError('Ungültiger verwalteter Zeitregel-Block.')
+    prefix, rest = text.split(begin)
+    _, suffix = rest.split(end)
+    if suffix.strip():
+        raise ValueError('Unbekannter Inhalt hinter dem Zeitregel-Block.')
+    return prefix.rstrip() + '\n'
+
+def rewrite_apps(text, apps, managed=''):
+    text = strip_managed(text)
+    result, counts = [], {(n, c): 0 for n, contexts in CONTEXTS.items() for c in contexts}
+    context = line = None
     for value in text.splitlines(keepends=True):
         m = re.match(r'\s*\[([^\]]+)\]', value)
         if m:
@@ -77,16 +117,69 @@ def rewrite_config(text, mappings):
         if m:
             line = m[1].strip()
         key = (line, context)
-        if key in counts and re.match(r'\s*same\s*=>\s*n,Dial\(PJSIP/(100|101|102),30\)\s*(;.*)?$', value.rstrip('\r\n')):
-            value = re.sub(r'Dial\(PJSIP/(100|101|102),30\)', 'Dial(PJSIP/' + mappings[line] + ',30)', value)
+        if key in counts and re.match(r'\s*same\s*=>\s*n,(?:Dial\(PJSIP/(?:100|101|102),30\)|Gosub\(tariq-hours-[a-f0-9]{12},' + re.escape(line) + r',1\))\s*(;.*)?$', value.rstrip('\r\n')):
+            value = re.sub(r'(?<=n,)(?:Dial|Gosub)\([^)]*\)', lambda m: apps[line], value, count=1)
             counts[key] += 1
         result.append(value)
     if any(n != 1 for n in counts.values()):
         raise ValueError('Unerwarteter Wählplan: Änderung abgebrochen.')
-    return ''.join(result)
+    text = ''.join(result)
+    return text.rstrip() + '\n' + managed if managed else text
+
+def rewrite_config(text, mappings):
+    validate_mappings(mappings)
+    return rewrite_apps(text, {n: 'Dial(PJSIP/' + mappings[n] + ',30)' for n in LINES})
 
 def normalized(text):
-    return rewrite_config(text, dict(zip(LINES, EXTENSIONS)))
+    return rewrite_config(text, dict(zip(LINES, EXTENSIONS))).strip()
+
+def compile_all(mappings, profiles):
+    apps, programs = {}, {}
+    for index, line in enumerate(LINES, 1):
+        app, context, program = compile_program(line, mappings[line], profiles[line], index)
+        apps[line] = app
+        if context:
+            programs[(context, line)] = program
+    managed = ''
+    if programs:
+        managed = '\n; BEGIN TARIQ WEB HOURS V1\n'
+        for (context, line), program in programs.items():
+            managed += '[' + context + ']\n'
+            for priority, app in enumerate(program, 1):
+                managed += ('exten => ' + line + ',1,' if priority == 1 else ' same => n,') + app + '\n'
+        managed += '; END TARIQ WEB HOURS V1\n'
+    return apps, programs, managed
+
+def prepare_programs(programs, output):
+    loaded = parse_programs(output)
+    active_contexts = {app.split('(', 1)[1].split(',', 1)[0]
+                       for app in incoming_apps(output).values() if app.startswith('Gosub(')}
+    for (context, line), apps in programs.items():
+        expected = dict(enumerate(apps, 1))
+        existing = loaded.get((context, line))
+        if existing == expected:
+            continue
+        if context in active_contexts:
+            raise ValueError('Aktive Zeitregel wurde außerhalb der Verwaltung verändert.')
+        for priority, app in expected.items():
+            cli('dialplan add extension ' + line + ',' + str(priority) + ',' + app +
+                ' into ' + context + ' replace')
+        if parse_programs(cli('dialplan show')).get((context, line)) != expected:
+            raise ValueError('Zeitregelprüfung fehlgeschlagen.')
+
+def sounds_ready():
+    try:
+        run(['docker', 'exec', '-u', 'asterisk', '-w', '/', CONTAINER,
+             'test', '-r', '/usr/share/zoneinfo/Europe/Berlin'])
+    except subprocess.SubprocessError:
+        return False
+    for i in (1, 2, 3):
+        try:
+            run(['docker', 'exec', '-u', 'asterisk', '-w', '/', CONTAINER,
+                 'test', '-r', '/var/lib/asterisk/sounds/custom/tariq-closed-' + str(i) + '.wav'])
+        except subprocess.SubprocessError:
+            return False
+    return True
 
 def web_read():
     script = "const fs=require('fs');const p='/data/pbx-routing-request.json';process.stdout.write(fs.existsSync(p)?fs.readFileSync(p,'utf8'):'null')"
@@ -101,6 +194,10 @@ def publish(status, request_id=None):
         input=json.dumps({'status': status, 'requestId': request_id}))
 
 def set_runtime(current, desired):
+    # Keep the public helper compatible with the original target-only tests.
+    def as_apps(values):
+        return {n: ('Dial(PJSIP/' + v + ',30)' if v in EXTENSIONS else v) for n, v in values.items()}
+    current, desired = as_apps(current), as_apps(desired)
     changed = []
     try:
         for number in LINES:
@@ -108,19 +205,19 @@ def set_runtime(current, desired):
                 continue
             for context in CONTEXTS[number]:
                 changed.append((number, context, current[number]))
-                cli('dialplan add extension ' + number + ',2,Dial(PJSIP/' +
-                    desired[number] + ',30) into ' + context + ' replace')
-        if parse_live(cli('dialplan show')) != desired:
+                cli('dialplan add extension ' + number + ',2,' + desired[number] +
+                    ' into ' + context + ' replace')
+        if incoming_apps(cli('dialplan show')) != desired:
             raise ValueError('Rufzielprüfung fehlgeschlagen.')
     except Exception:
         rollback_failed = False
         for number, context, previous in reversed(changed):
             try:
-                cli('dialplan add extension ' + number + ',2,Dial(PJSIP/' +
-                    previous + ',30) into ' + context + ' replace')
+                cli('dialplan add extension ' + number + ',2,' + previous +
+                    ' into ' + context + ' replace')
             except Exception:
                 rollback_failed = True
-        if rollback_failed or parse_live(cli('dialplan show')) != current:
+        if rollback_failed or incoming_apps(cli('dialplan show')) != current:
             raise RuntimeError('Rücksetzung nicht bestätigt; bitte Anlage prüfen.')
         raise
 
@@ -134,62 +231,77 @@ def save_state(value):
 def routing_tick():
     request = None
     try:
-        current = parse_live(cli('dialplan show'))
+        output = cli('dialplan show')
+        current = parse_live(output)
+        old_apps = incoming_apps(output)
         host = HOST.read_text()
         if not os.access(HOST, os.W_OK) or not os.access(HOST.parent, os.W_OK):
-            raise ValueError('Host-Wählplan ist nicht beschreibbar. Rufziele bleiben unverändert.')
+            raise ValueError('Host-Wählplan ist nicht beschreibbar.')
         container = run(['docker', 'exec', '-u', 'asterisk', '-w', '/', CONTAINER,
                          'cat', '/etc/asterisk/extensions.conf']).stdout
         if normalized(host) != normalized(container):
-            raise ValueError('Host- und Container-Wählplan weichen außerhalb der Rufziele ab.')
-        # Validate the complete config shape before exposing controls.
-        rewrite_config(host, current)
+            raise ValueError('Host- und Container-Wählplan weichen außerhalb der verwalteten Regeln ab.')
         saved = json.loads(STATE.read_text()) if STATE.exists() else {}
+        profiles = all_profiles(saved.get('hours', {}), LINES)
+        desired = validate_mappings(saved.get('mappings', current))
+        desired_profiles = profiles
         last = saved.get('lastRequest')
+        configured_hours = [line for line in saved.get('configuredHours', []) if line in LINES]
+        ready = sounds_ready()
         request = web_read()
         if request is not None:
             if not isinstance(request, dict) or not re.fullmatch(r'[a-f0-9]{32}', str(request.get('id', ''))):
                 raise ValueError('Ungültiger Änderungsauftrag.')
-            desired = validate_mappings(request.get('mappings'))
             created = datetime.datetime.fromisoformat(request.get('createdAt', '').replace('Z', '+00:00'))
             age = (datetime.datetime.now(datetime.timezone.utc) - created).total_seconds()
             if age < -10 or age > 300:
                 raise ValueError('Änderungsauftrag ist abgelaufen. Bitte erneut übernehmen.')
-            if request.get('revision') != revision(current):
-                raise ValueError('Zuordnung wurde inzwischen verändert. Bitte neu laden.')
-            new_config = rewrite_config(host, desired)
+            if request.get('revision') != revision(current, profiles):
+                raise ValueError('Einstellungen wurden inzwischen verändert. Bitte neu laden.')
+            desired = validate_mappings(request.get('mappings'))
+            desired_profiles = all_profiles(request.get('hours', profiles), LINES)
+            if desired_profiles != profiles and not ready:
+                raise ValueError('Die Geschlossen-Ansagen sind noch nicht bereit.')
+        apps, programs, managed = compile_all(desired, desired_profiles)
+        if programs and not ready:
+            raise ValueError('Geschlossen-Ansage fehlt. Bestehende Regeln bleiben erhalten.')
+        new_config = rewrite_apps(host, apps, managed)
+        if request:
             backup = HOST.with_name('extensions.conf.backup-web-' +
                          datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
             backup.write_text(host)
             backup.chmod(0o600)
-            # Save requested routing separately first. A crash may be retried idempotently.
-            try:
-                set_runtime(current, desired)
-                HOST.write_text(new_config)  # Keep the existing mount inode when shared.
+        prepare_programs(programs, output)
+        try:
+            set_runtime(old_apps, apps)
+            if request:
+                HOST.write_text(new_config)
                 if HOST.read_text() != new_config:
                     raise ValueError('Dateiprüfung fehlgeschlagen.')
                 last = {'id': request['id'], 'state': 'applied', 'at': now(),
-                        'message': 'Rufziele übernommen und in Asterisk bestätigt.'}
-                save_state({'mappings': desired, 'lastRequest': last})
-                current = desired
-            except Exception:
-                try:
+                        'message': 'Öffnungszeiten und Ansage in Asterisk aktiviert.' if request.get('kind') == 'hours' else 'Rufziele übernommen und in Asterisk bestätigt.'}
+                if request.get('kind') == 'hours' and request.get('line') in LINES and request['line'] not in configured_hours:
+                    configured_hours.append(request['line'])
+                save_state({'mappings': desired, 'hours': desired_profiles, 'configuredHours': configured_hours, 'lastRequest': last})
+        except Exception:
+            try:
+                if request:
                     HOST.write_text(host)
-                finally:
-                    set_runtime(parse_live(cli('dialplan show')), current)
-                raise
-        elif saved.get('mappings'):
-            # Reconcile only explicitly accepted website settings after a PBX reload.
-            desired = validate_mappings(saved['mappings'])
-            set_runtime(current, desired)
-            current = desired
+            finally:
+                set_runtime(incoming_apps(cli('dialplan show')), old_apps)
+            raise
+        current = parse_live(cli('dialplan show'))
+        local_now = datetime.datetime.now(datetime.timezone.utc).astimezone(TZ)
         status = {'checkedAt': now(), 'available': True, 'mappings': current,
-                  'revision': revision(current), 'lastRequest': last}
+                  'hours': desired_profiles, 'hoursReady': ready, 'hoursConfigured': configured_hours,
+                  'today': local_now.date().isoformat(), 'timezone': 'Europe/Berlin',
+                  'open': {n: is_open(desired_profiles[n], local_now) for n in LINES},
+                  'revision': revision(current, desired_profiles), 'lastRequest': last}
         publish(status, request.get('id') if request else None)
         return status
     except Exception as exc:
         message = str(exc) if isinstance(exc, (ValueError, RuntimeError)) else 'Rufziel-Service derzeit nicht verfügbar.'
-        status = {'checkedAt': now(), 'available': False, 'mappings': {},
+        status = {'checkedAt': now(), 'available': False, 'mappings': {}, 'hoursReady': False,
                   'lastRequest': {'id': request.get('id'), 'state': 'failed',
                                   'at': now(), 'message': message} if isinstance(request, dict) else None,
                   'note': message}
