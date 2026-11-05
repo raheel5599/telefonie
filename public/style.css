@@ -34,3 +34,21 @@ body.authenticated .auth-screen{display:none}
 .live-toolbar button{border:1px solid #6c5226;border-radius:9px;padding:10px 14px;background:#27231e;color:#f8d28a;font-size:12px}
 .live-toolbar button:hover{background:#403018}.live-toolbar button:disabled{opacity:.55;cursor:wait}
 @media(max-width:620px){.live-toolbar{align-items:flex-start;flex-direction:column}.stat strong{font-size:24px}}
+
+/* Incoming route cards extend the established charcoal/gold dashboard. */
+.forward-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-bottom:24px}
+.forward-grid .panel+.panel{margin-top:0}
+.forward-card .panel-head{align-items:flex-start;flex-wrap:wrap}
+.forward-card .eyebrow{font-size:10px;margin-bottom:10px}
+.forward-card h2{line-height:1.4}
+.forward-number{font-size:12px;color:#929aa6;margin:8px 0 0}
+.forward-current{padding:16px;background:#1c2229;border:1px solid #303741;border-radius:11px}
+.forward-current span{display:block;color:#929aa6;font-size:11px;margin-bottom:8px}
+.forward-current strong{color:#e8c06e;font-size:17px}
+.forward-card select:focus{outline:2px solid #bf9650;outline-offset:2px}
+.forward-card .save-number{width:100%}
+.forward-info{display:flex;align-items:center;gap:10px;border:1px solid #63502d;background:#231d14;color:#e6c485;border-radius:12px;padding:16px 19px;font-size:13px;line-height:1.6}
+.forward-info .status-dot{flex-shrink:0;margin:0}
+.forward-message{min-height:20px;color:#e8c06e;font-size:13px;line-height:1.6;margin:16px 0}
+@media(max-width:1150px){.forward-grid{grid-template-columns:1fr}.forward-card .panel-pad{display:grid;grid-template-columns:1fr 1fr;gap:0 22px;align-items:center}.forward-card .save-number{margin:0}.forward-card .page-text{margin:0}}
+@media(max-width:620px){.forward-card .panel-pad{display:block}.forward-card .save-number{margin-top:12px}.forward-card .page-text{margin-top:12px}}
