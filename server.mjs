@@ -103,7 +103,8 @@ async function amiCommand(command){
    }else if(stage===1&&buffer.includes('\r\n\r\n')){
     if(!buffer.includes('Response: Success'))return finish(Error('AMI authentication failed'));
     buffer='';stage=2;socket.write('Action: Command\r\nCommand: '+command+'\r\n\r\n');
-   }else if(stage===2&&buffer.includes('--END COMMAND--'))finish(null,buffer);
+   }else if(stage===2&&buffer.includes('Response: Error'))finish(Error('AMI command not permitted'));
+   else if(stage===2&&buffer.includes('--END COMMAND--'))finish(null,buffer);
   });
  });
 }
@@ -117,7 +118,7 @@ async function readLivePbx(){
   amiCommand('core show channels count')
  ]);
  const regs=parseRegistrations(registrations);
- const extensions=['100','101','102'].map(id=>({id,configured:new RegExp('Endpoint:\s+'+id+'(?:\s|/)').test(endpoints),online:new RegExp('Contact:.*'+id+'.*\bAvail\b').test(endpoints)}));
+ const extensions=['100','101','102'].map(id=>({id,configured:new RegExp('Endpoint:\\s+'+id+'(?:\\s|/)').test(endpoints),online:new RegExp('Contact:.*'+id+'.*\\bAvail\\b').test(endpoints)}));
  const active=/(\d+) active channels?/i.exec(channels)?.[1];
  return {checkedAt:new Date().toISOString(),registrations:regs,extensions,activeChannels:active===undefined?null:Number(active)};
 }
