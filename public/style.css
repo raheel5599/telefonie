@@ -94,3 +94,15 @@ body.authenticated .auth-screen{display:none}
 .voice-default{display:block;background:transparent;color:#cbb783;border:0;text-decoration:underline;text-underline-offset:4px;padding:12px 0;margin-top:8px;font-size:12px}
 .voice-message{min-height:20px;color:#e8c06e;font-size:12px;line-height:1.6}
 @media(max-width:620px){.voice-counter{align-items:flex-start;flex-direction:column;gap:5px}}
+
+/* Target selector follows the existing gold-accented dashboard controls. */
+.forward-form fieldset{border:0;padding:0;margin:0;min-width:0}
+.target-types{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:18px}
+.target-types label{display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 8px;background:#1c2229;color:#a9b0ba;border:1px solid #343a43;border-radius:9px;font-size:12px;cursor:pointer}
+.target-types label.selected{background:#302719;color:#f8d28a;border-color:#9b783a}
+.target-types input{accent-color:#dbb265;margin:0}
+.target-types:has(input:disabled){opacity:.55}
+.target-hint{font-size:11px;color:#929aa6;line-height:1.6;margin:-5px 0 15px}
+.forward-current strong{overflow-wrap:anywhere}
+@media(max-width:1150px){.forward-form fieldset{grid-column:2;grid-row:1 / span 2}.forward-form .page-text{margin-top:12px}.target-types{margin-top:0}}
+@media(max-width:620px){.target-types{margin-top:18px}}

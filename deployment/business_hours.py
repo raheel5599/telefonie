@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from zoneinfo import ZoneInfo
+from route_targets import normalize_target, dial_app
 
 TZ = ZoneInfo('Europe/Berlin')
 DAY_NAMES = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')
@@ -57,10 +58,11 @@ def preceding_minute(end):
 
 def compile_program(line, extension, profile, sound_index):
     profile = validate_profile(profile)
-    if not re.fullmatch(r'\+49\d{7,13}', line) or extension not in ('100', '101', '102') or sound_index not in (1, 2, 3):
+    extension = normalize_target(extension)
+    if not re.fullmatch(r'\+49\d{7,13}', line) or sound_index not in (1, 2, 3):
         raise ValueError('Ungültiges Rufziel.')
     if not profile['enabled'] and not profile['closedDate']:
-        return f'Dial(PJSIP/{extension},30)', None, []
+        return dial_app(extension), None, []
     digest = hashlib.sha256(json.dumps([line, extension, profile], sort_keys=True).encode()).hexdigest()[:12]
     context = 'tariq-hours-' + digest
     program = ['NoOp(TARIQ-Web-Hours)']
@@ -77,7 +79,7 @@ def compile_program(line, extension, profile, sound_index):
     closed_priority = len(program) + 1
     program.extend(['Answer()', 'Wait(1)', f'Playback(custom/tariq-closed-{sound_index})', 'Hangup()'])
     open_priority = len(program) + 1
-    program.extend([f'Dial(PJSIP/{extension},30)', 'Return()'])
+    program.extend([dial_app(extension), 'Return()'])
     program = [value.replace('?CLOSED)', '?' + str(closed_priority) + ')')
                     .replace('?OPEN)', '?' + str(open_priority) + ')')
                     .replace('Goto(OPEN)', 'Goto(' + str(open_priority) + ')') for value in program]

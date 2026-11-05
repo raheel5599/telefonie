@@ -41,8 +41,8 @@ class RoutingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             routes.rewrite_config(text, DEFAULT)
 
-    def test_reject_external_number_and_command_injection(self):
-        for value in ('01701234567', '100;dialplan reload', '100,30)\\nSystem(id)', 100):
+    def test_reject_unsafe_number_and_command_injection(self):
+        for value in ('09001234567', '100;dialplan reload', '100,30)\\nSystem(id)', 100):
             with self.assertRaises(ValueError):
                 routes.validate_mappings({**DEFAULT, routes.LINES[0]: value})
 

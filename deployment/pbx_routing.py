@@ -12,6 +12,7 @@ import subprocess
 import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from business_hours import all_profiles, compile_program, is_open, TZ
+from route_targets import normalize_target, dial_app, target_from_dial, validate_outbound
 
 LINES = ('+4960316868187', '+4960316843466', '+4960316871811')
 EXTENSIONS = ('100', '101', '102')
@@ -42,9 +43,7 @@ def cli(command):
 def validate_mappings(mappings):
     if not isinstance(mappings, dict) or set(mappings) != set(LINES):
         raise ValueError('Alle drei Rufnummern müssen enthalten sein.')
-    if any(not isinstance(v, str) or v not in EXTENSIONS for v in mappings.values()):
-        raise ValueError('Nur Nebenstellen 100, 101 und 102 sind erlaubt.')
-    return dict(mappings)
+    return {line: normalize_target(value) for line, value in mappings.items()}
 
 def revision(mappings, profiles=None, announcements=None):
     value = mappings if profiles is None else {'mappings': mappings, 'hours': profiles}
@@ -75,7 +74,7 @@ def incoming_apps(output):
         if not all(apps) or len(set(apps)) != 1:
             raise ValueError('Bestehende Rufverteilung ist nicht eindeutig lesbar.')
         app = apps[0]
-        if not re.fullmatch(r'Dial\(PJSIP/(100|101|102),30\)', app) and not re.fullmatch(
+        if target_from_dial(app) is None and not re.fullmatch(
                 r'Gosub\(tariq-hours-[a-f0-9]{12},' + re.escape(number) + r',1\)', app):
             raise ValueError('Unerwartete Eingangsregel.')
         result[number] = app
@@ -85,14 +84,13 @@ def parse_live(output):
     programs = parse_programs(output)
     result = {}
     for number, app in incoming_apps(output).items():
-        m = re.fullmatch(r'Dial\(PJSIP/(100|101|102),30\)', app)
-        if m:
-            result[number] = m[1]
+        target = target_from_dial(app)
+        if target:
+            result[number] = target
         else:
             context = app.split('(', 1)[1].split(',', 1)[0]
-            targets = [re.fullmatch(r'Dial\(PJSIP/(100|101|102),30\)', a)
-                       for a in programs.get((context, number), {}).values()]
-            targets = [m[1] for m in targets if m]
+            targets = [target_from_dial(a) for a in programs.get((context, number), {}).values()]
+            targets = [target for target in targets if target]
             if len(targets) != 1:
                 raise ValueError('Zeitregel enthält kein eindeutiges Rufziel.')
             result[number] = targets[0]
@@ -122,7 +120,7 @@ def rewrite_apps(text, apps, managed=''):
         if m:
             line = m[1].strip()
         key = (line, context)
-        if key in counts and re.match(r'\s*same\s*=>\s*n,(?:Dial\(PJSIP/(?:100|101|102),30\)|Gosub\(tariq-hours-[a-f0-9]{12},' + re.escape(line) + r',1\))\s*(;.*)?$', value.rstrip('\r\n')):
+        if key in counts and re.match(r'\s*same\s*=>\s*n,(?:Dial\(PJSIP/(?:100|101|102),30\)|Dial\(Local/0[0-9]{6,11}@outbound-de/n,30\)|Gosub\(tariq-hours-[a-f0-9]{12},' + re.escape(line) + r',1\))\s*(;.*)?$', value.rstrip('\r\n')):
             value = re.sub(r'(?<=n,)(?:Dial|Gosub)\([^)]*\)', lambda m: apps[line], value, count=1)
             counts[key] += 1
         result.append(value)
@@ -132,8 +130,8 @@ def rewrite_apps(text, apps, managed=''):
     return text.rstrip() + '\n' + managed if managed else text
 
 def rewrite_config(text, mappings):
-    validate_mappings(mappings)
-    return rewrite_apps(text, {n: 'Dial(PJSIP/' + mappings[n] + ',30)' for n in LINES})
+    mappings = validate_mappings(mappings)
+    return rewrite_apps(text, {n: dial_app(mappings[n]) for n in LINES})
 
 def normalized(text):
     return rewrite_config(text, dict(zip(LINES, EXTENSIONS))).strip()
@@ -201,7 +199,7 @@ def publish(status, request_id=None):
 def set_runtime(current, desired):
     # Keep the public helper compatible with the original target-only tests.
     def as_apps(values):
-        return {n: ('Dial(PJSIP/' + v + ',30)' if v in EXTENSIONS else v) for n, v in values.items()}
+        return {n: (v if v.startswith(('Dial(', 'Gosub(')) else dial_app(v)) for n, v in values.items()}
     current, desired = as_apps(current), as_apps(desired)
     changed = []
     try:
@@ -343,6 +341,8 @@ def routing_tick():
             desired_profiles = all_profiles(request.get('hours', profiles), LINES)
             if desired_profiles != profiles and not ready:
                 raise ValueError('Die Geschlossen-Ansagen sind noch nicht bereit.')
+        if any(target not in EXTENSIONS for target in desired.values()):
+            validate_outbound(parse_programs(output))
         apps, programs, managed = compile_all(desired, desired_profiles)
         if programs and not ready:
             raise ValueError('Geschlossen-Ansage fehlt. Bestehende Regeln bleiben erhalten.')

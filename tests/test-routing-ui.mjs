@@ -38,8 +38,8 @@ const status={available:true,checkedAt:new Date().toISOString(),revision:'revisi
 files.set('/data/pbx-routing.json',JSON.stringify(status));
 env.input={revision:'old',mappings:status.mappings};
 assert.throws(()=>vm.runInContext('queueRouting(input)',env),/verändert/);
-env.input={revision:'revision',mappings:{...status.mappings,'+4960316868187':'01701234567'}};
-assert.throws(()=>vm.runInContext('queueRouting(input)',env),/Ungültige/);
+env.input={revision:'revision',mappings:{...status.mappings,'+4960316868187':'09001234567'}};
+assert.throws(()=>vm.runInContext('queueRouting(input)',env),/Handy|Festnetz|Ungültige/);
 env.input={revision:'revision',mappings:{...status.mappings,'+4960316868187':'102'}};
 assert.equal(vm.runInContext('queueRouting(input).state',env),'pending');
 assert.throws(()=>vm.runInContext('queueRouting(input)',env),/bereits/);
@@ -47,3 +47,17 @@ assert.equal(JSON.parse(files.get('/data/pbx-routing-request.json')).mappings['+
 files.set('/data/pbx-routing.json',JSON.stringify({...status,checkedAt:new Date(Date.now()-160000).toISOString()}));
 assert.equal(vm.runInContext('readRouting().available',env),false);
 console.log('Routing UI, validation, optimistic concurrency and stale-state tests passed.');
+
+files.delete('/data/pbx-routing-request.json');
+files.set('/data/pbx-routing.json',JSON.stringify(status));
+env.input={revision:'revision',mappings:{...status.mappings,'+4960316868187':'0170 5996911'}};
+assert.equal(vm.runInContext('queueRouting(input).state',env),'pending');
+assert.equal(JSON.parse(files.get('/data/pbx-routing-request.json')).mappings['+4960316868187'],'+491705996911');
+vm.runInContext("routingState={available:true,mappings:{'+4960316868187':'+491705996911','+4960316843466':'101','+4960316871811':'102'}};routeDraft={}",ctx);
+html=vm.runInContext('screens.forwards()',ctx);
+assert(html.includes('Externe Nummer'));
+assert(html.includes('name="externalNumber"'));
+assert(html.includes('Extern: +491705996911'));
+assert(html.includes('value="+491705996911"'));
+assert(html.includes('Deine Öffnungszeiten bleiben aktiv.'));
+console.log('External target selector, canonical phone storage and active destination display passed.');

@@ -2,6 +2,7 @@ const main=document.querySelector('#main'),sidebar=document.querySelector('#side
 const nav=[...document.querySelectorAll('[data-page]')];
 let announcementTexts={},voiceDrafts={},voiceGenerating=false,voiceMessage='';
 let hoursLine='+4960316868187',hoursDraft={};
+let routeTypeDraft={},routePhoneDraft={},routeExtensionDraft={};
 let routingState=null,routeDraft={},routeBusy=false,routeMessage='';
 let pbxStatus=null,liveStatus=null,storedNumbers=[],routingPlans={},routingPreview=null;
 const lines=[
@@ -17,20 +18,48 @@ const liveReady=()=>['connected','partial'].includes(liveStatus?.monitoring);
 const liveTime=()=>liveStatus?.checkedAt?new Date(liveStatus.checkedAt).toLocaleTimeString('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
 const notice=()=>'<div class="warning">'+(liveStatus?.monitoring==='connected'?'Status aktualisiert um '+esc(liveTime())+' Uhr · automatische Aktualisierung jede Minute.':liveStatus?.monitoring==='partial'?'Einzelne Statusabfragen sind nicht verfügbar. Unbekannte Werte werden mit — angezeigt.':liveStatus?.monitoring==='stale'?'Die letzte Statusabfrage ist veraltet. Es werden keine alten Werte als live angezeigt.':'Die Live-Überwachung wird eingerichtet. Die bestehende Telefonie läuft unabhängig davon weiter.')+' Zeitregeln werden unter Öffnungszeiten verwaltet.</div><div class="live-toolbar"><span>Letzte Abfrage: '+esc(liveTime())+'</span><button type="button" id="refresh-status">Status aktualisieren</button></div>';
 const row=(icon,title,sub,right='')=>'<div class="item"><span class="circle">'+icon+'</span><div class="item-text"><strong>'+esc(title)+'</strong><small>'+esc(sub)+'</small></div>'+right+'</div>';
-const lineRows=()=>lines.map((x,i)=>{const registration=liveStatus?.registrations?.find(r=>r.id===(i?'telekom-registration-'+(i+1):'telekom-registration'));const label=registration?(registration.status==='Registered'?'Live registriert':registration.status):(liveReady()&&!liveStatus.errors?.includes('registrations')?'Nicht registriert':x.verified?'Anruf getestet · letzter Stand':'Registrierung zuletzt bestätigt');return row('☎',x.label,x.e164+' · '+(activeRoute(x)?'Nebenstelle '+activeRoute(x):'Zuletzt: Nebenstelle '+x.ext),pill(label,registration?.status==='Registered'?'good':'neutral'))}).join('');
+const lineRows=()=>lines.map((x,i)=>{const registration=liveStatus?.registrations?.find(r=>r.id===(i?'telekom-registration-'+(i+1):'telekom-registration'));const label=registration?(registration.status==='Registered'?'Live registriert':registration.status):(liveReady()&&!liveStatus.errors?.includes('registrations')?'Nicht registriert':x.verified?'Anruf getestet · letzter Stand':'Registrierung zuletzt bestätigt');return row('☎',x.label,x.e164+' · '+(activeRoute(x)?targetLabel(activeRoute(x)):'Rufziel derzeit nicht abrufbar'),pill(label,registration?.status==='Registered'?'good':'neutral'))}).join('');
 const stat=(name,value,sub)=>'<div class="stat"><div class="kicker">'+name+'</div><strong>'+value+'</strong><small>'+sub+'</small></div>';
 const monitor=()=>pbxStatus?.monitoring==='connected'?'Verbunden':pbxStatus?.monitoring==='unavailable'?'Nicht erreichbar':'Nicht geprüft';
 
 const activeRoute=x=>routingState?.available?routingState.mappings?.[x.e164]:null;
+function normalizeRouteTarget(raw,extensions,own){
+ if(typeof raw!=='string')throw Error('Ungültiges Rufziel.');
+ if(extensions.includes(raw))return raw;
+ let value=raw.trim().replace(/[\s()./\-]/g,'');
+ if(value.startsWith('00'))value='+'+value.slice(2);
+ else if(value.startsWith('0'))value='+49'+value.slice(1);
+ if(!/^\+49[1-9][0-9]{6,12}$/.test(value))throw Error('Bitte eine deutsche Handy- oder Festnetznummer eingeben.');
+ const national='0'+value.slice(3);
+ if(!(/^01[567][0-9]{7,9}$/.test(national)||/^0[2-9][0-9]{5,10}$/.test(national))||['0137','0180','0190','0700','0800','0900'].some(p=>national.startsWith(p)))throw Error('Bitte eine reguläre deutsche Handy- oder Festnetznummer eingeben.');
+ if(own.includes(value))throw Error('Eine eigene Firmennummer kann nicht als externes Rufziel verwendet werden.');
+ return value;
+}
+
+const targetLabel=target=>target?.startsWith('+')?'Extern: '+target:'Nebenstelle '+target;
+const choiceTarget=(type,extension,phone)=>{
+ if(type==='extension')return extension;
+ const target=normalizeRouteTarget(phone,lines.map(x=>x.ext),lines.map(x=>x.e164));
+ if(!target.startsWith('+'))throw Error('Bitte eine Handy- oder Festnetznummer eingeben.');
+ return target;
+};
+function forwardDraft(x){
+ const active=activeRoute(x),desired=routeDraft[x.e164]||active||x.ext;
+ return {type:routeTypeDraft[x.e164]||(desired.startsWith('+')?'external':'extension'),
+  extension:routeExtensionDraft[x.e164]||(!desired.startsWith('+')?desired:x.ext),
+  phone:routePhoneDraft[x.e164]??(desired.startsWith('+')?desired:'')};
+}
+
 const forwardCards=()=>'<div class="forward-grid">'+lines.map(x=>{
- const active=activeRoute(x),selected=routeDraft[x.e164]||active||x.ext;
+ const active=activeRoute(x),draft=forwardDraft(x);
  const disabled=routeBusy||routingState?.pending||!routingState?.available;
- return '<section class="panel forward-card"><div class="panel-head"><div><div class="eyebrow">RUFZIEL</div><h2>'+esc(x.label)+'</h2><p class="forward-number">'+esc(x.e164)+'</p></div>'+pill(active?'Aktiv bestätigt':'Nicht geprüft',active?'good':'neutral')+'</div><form class="forward-form panel-pad" data-line="'+x.e164+'"><div class="forward-current"><span>Aktuelles Rufziel</span><strong>'+esc(active?'Nebenstelle '+active:'Noch nicht abrufbar')+'</strong></div><label class="field">Anrufe weiterleiten an<select name="extension" '+(disabled?'disabled':'')+'>'+lines.map(t=>'<option value="'+t.ext+'" '+(selected===t.ext?'selected':'')+'>'+t.ext+' · '+esc(t.label)+'</option>').join('')+'</select></label><button class="save-number" type="submit" '+(disabled||selected===active?'disabled':'')+'>Übernehmen</button><p class="page-text">Gilt für neue eingehende Anrufe.</p></form></section>';
+ let selected;try{selected=choiceTarget(draft.type,draft.extension,draft.phone)}catch{selected=null}
+ return '<section class="panel forward-card"><div class="panel-head"><div><div class="eyebrow">RUFZIEL</div><h2>'+esc(x.label)+'</h2><p class="forward-number">'+esc(x.e164)+'</p></div>'+pill(active?'Aktiv bestätigt':'Nicht geprüft',active?'good':'neutral')+'</div><form class="forward-form panel-pad" data-line="'+x.e164+'"><div class="forward-current"><span>Aktuelles Rufziel</span><strong>'+esc(active?targetLabel(active):'Noch nicht abrufbar')+'</strong></div><fieldset '+(disabled?'disabled':'')+'><div class="target-types"><label class="'+(draft.type==='extension'?'selected':'')+'"><input type="radio" name="targetType" value="extension" '+(draft.type==='extension'?'checked':'')+'> Nebenstelle</label><label class="'+(draft.type==='external'?'selected':'')+'"><input type="radio" name="targetType" value="external" '+(draft.type==='external'?'checked':'')+'> Externe Nummer</label></div>'+(draft.type==='extension'?'<label class="field">Ziel-Nebenstelle<select name="extension">'+lines.map(t=>'<option value="'+t.ext+'" '+(draft.extension===t.ext?'selected':'')+'>'+t.ext+' · '+esc(t.label)+'</option>').join('')+'</select></label>':'<label class="field">Handy- oder Festnetznummer<input type="tel" name="externalNumber" inputmode="tel" autocomplete="tel" maxlength="40" placeholder="z. B. 0170 1234567" value="'+esc(draft.phone)+'" required></label><p class="target-hint">Mit deutscher Vorwahl oder +49 eingeben.</p>')+'<button class="save-number" type="submit" '+(disabled||selected===active||(draft.type==='external'&&!draft.phone.trim())?'disabled':'')+'>Übernehmen</button></fieldset><p class="page-text">Gilt für neue eingehende Anrufe. Deine Öffnungszeiten bleiben aktiv.</p></form></section>';
 }).join('')+'</div>';
-const forwardView=()=>head('Weiterleitungen','Für jede Firma festlegen, an welcher Nebenstelle neue Anrufe klingeln.')+
+const forwardView=()=>head('Weiterleitungen','Für jede Firma zwischen interner Nebenstelle und externer Rufnummer wählen.')+
  '<div class="forward-info"><span class="status-dot"></span><span>'+esc(routingState?.pending?'Änderung wird übernommen · dies dauert bis zu einer Minute.':routingState?.available?'Aktive Rufziele werden direkt in Asterisk geprüft.':routingState?.note||'Rufziele werden geladen …')+'</span></div>'+
  '<p class="forward-message" role="status" aria-live="polite">'+esc(routeMessage)+'</p>'+forwardCards()+
- panel('Weitere Regeln','<div class="panel-pad"><p class="page-text">Weiterleitungen bei Besetzt, Nichtmelden und außerhalb der Öffnungszeiten folgen als nächster Schritt.</p></div>');
+ panel('Weitere Regeln','<div class="panel-pad"><p class="page-text">Die eingestellten Öffnungszeiten gelten auch für externe Rufziele. Regeln für Besetzt und Nichtmelden folgen als nächster Schritt.</p></div>');
 
 
 const weekNames=['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
@@ -69,7 +98,7 @@ function hoursView(){
  '<div class="forward-info"><span class="status-dot"></span><span>'+esc(routingState?.pending?'Einstellungen werden übernommen · dies dauert bis zu einer Minute.':ready?'Deutsche Ortszeit · Sommer- und Winterzeit werden automatisch berücksichtigt.':routingState?.note||'Ansagen und Zeitregeln werden vorbereitet.')+'</span></div>'+
  '<p class="forward-message" role="status" aria-live="polite">'+esc(routeMessage)+'</p>'+
  '<div class="hours-editor-grid">'+panel(esc(line.label)+' · Wochenplan','<form id="hours-form" class="panel-pad hours-form" data-line="'+line.e164+'"><div class="hours-state">'+pill(state,ready&&routingState.open?.[line.e164]?'good':'neutral')+'<span>'+esc(saved?.closedDate===routingState?.today?'Heute manuell geschlossen':saved?.enabled?'Wochenplan aktiv':'Ohne Wochenplan durchgehend erreichbar')+'</span></div><fieldset '+(disabled?'disabled':'')+'><label class="hours-toggle"><span><strong>Öffnungszeiten aktivieren</strong><small>Außerhalb dieser Zeiten hören Anrufer die Geschlossen-Ansage.</small></span><input name="hoursEnabled" type="checkbox" '+(p.enabled?'checked':'')+'></label><div class="hours-week">'+p.week.map((d,i)=>'<div class="hours-day"><label><input type="checkbox" name="day'+i+'" '+(d.enabled?'checked':'')+'> '+weekNames[i]+'</label><div class="hours-times"><input aria-label="'+weekNames[i]+' von" type="time" name="start'+i+'" value="'+esc(d.start)+'" required><span>bis</span><input aria-label="'+weekNames[i]+' bis" type="time" name="end'+i+'" value="'+esc(d.end)+'" required></div></div>').join('')+'</div><label class="hours-toggle hours-today"><span><strong>Heute geschlossen</strong><small>Gilt nur heute. Ab Mitternacht greift wieder der Wochenplan.</small></span><input name="closedToday" type="checkbox" '+(p.closedToday?'checked':'')+'></label><button class="save-number" type="submit">Speichern & aktivieren</button></fieldset><p class="page-text">Ohne aktivierte Öffnungszeiten klingeln Anrufe am gewählten Rufziel. Alte Zeitplan-Entwürfe werden erst mit diesem Button übernommen.</p></form>')+
- panel('Geschlossen-Ansage','<div class="panel-pad">'+announcementForm(line)+'<div class="forward-current"><span>Rufziel während der Öffnungszeiten</span><strong>'+esc(activeRoute(line)?'Nebenstelle '+activeRoute(line):'Noch nicht abrufbar')+'</strong></div></div>')+'</div>';
+ panel('Geschlossen-Ansage','<div class="panel-pad">'+announcementForm(line)+'<div class="forward-current"><span>Rufziel während der Öffnungszeiten</span><strong>'+esc(activeRoute(line)?targetLabel(activeRoute(line)):'Noch nicht abrufbar')+'</strong></div></div>')+'</div>';
 }
 
 const screens={
@@ -136,21 +165,34 @@ async function loadRoutes(){
    window.pendingHoursLine=null;
    window.pendingRouteId=null;
   }
-  if(['#forwards','#hours'].includes(location.hash)&&document.body.classList.contains('authenticated')&&!document.activeElement?.closest('.hours-form')&&!document.activeElement?.closest('.announcement-form')&&document.querySelector('audio')?.paused!==false)render();
+  if(['#forwards','#hours'].includes(location.hash)&&document.body.classList.contains('authenticated')&&!document.activeElement?.closest('.forward-form')&&!document.activeElement?.closest('.hours-form')&&!document.activeElement?.closest('.announcement-form')&&document.querySelector('audio')?.paused!==false)render();
  }catch{routingState={available:false,note:'Rufziele derzeit nicht abrufbar.'};if(['#forwards','#hours'].includes(location.hash))render()}
  finally{routesLoading=false}
 }
+function updateForwardDraft(form){
+ const line=form.dataset.line,type=form.elements.targetType.value;
+ routeTypeDraft[line]=type;
+ if(form.elements.extension){routeExtensionDraft[line]=form.elements.extension.value;routeDraft[line]=form.elements.extension.value}
+ if(form.elements.externalNumber)routePhoneDraft[line]=form.elements.externalNumber.value;
+ let target;try{target=choiceTarget(type,routeExtensionDraft[line]||lines.find(x=>x.e164===line).ext,routePhoneDraft[line]||'')}catch{target=null}
+ const button=form.querySelector('[type=submit]');
+ button.disabled=routeBusy||!!routingState?.pending||!routingState?.available||target===routingState?.mappings?.[line]||(type==='external'&&!routePhoneDraft[line]?.trim());
+}
+main.addEventListener('input',e=>{const form=e.target.closest('.forward-form');if(form)updateForwardDraft(form)});
 main.addEventListener('change',e=>{
- const form=e.target.closest('.forward-form');
- if(!form||e.target.name!=='extension')return;
- routeDraft[form.dataset.line]=e.target.value;
- form.querySelector('[type=submit]').disabled=routeBusy||!!routingState?.pending||!routingState?.available||e.target.value===activeRoute(lines.find(x=>x.e164===form.dataset.line));
+ const form=e.target.closest('.forward-form');if(!form)return;
+ updateForwardDraft(form);
+ if(e.target.name==='targetType')render();
 });
 document.addEventListener('submit',async e=>{
  if(!e.target.matches('.forward-form'))return;
  e.preventDefault();
  if(routeBusy||routingState?.pending||!routingState?.available)return;
- const form=e.target,line=form.dataset.line,target=form.elements.extension.value;
+ const form=e.target,line=form.dataset.line;
+ updateForwardDraft(form);
+ let target;
+ try{target=choiceTarget(form.elements.targetType.value,routeExtensionDraft[line]||lines.find(x=>x.e164===line).ext,routePhoneDraft[line]||'')}
+ catch(err){routeMessage=err.message;render();return}
  const mappings={...routingState.mappings,[line]:target};
  routeBusy=true;routeMessage='Rufziel wird übernommen …';render();
  try{

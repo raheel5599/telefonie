@@ -139,6 +139,19 @@ function readRouting(){
  try{const r=JSON.parse(fs.readFileSync(path.join(storeDir,'pbx-routing-request.json'),'utf8'));pending={id:r.id,createdAt:r.createdAt}}catch{}
  return {...value,pending};
 }
+function normalizeRouteTarget(raw,extensions,own){
+ if(typeof raw!=='string')throw Error('Ungültiges Rufziel.');
+ if(extensions.includes(raw))return raw;
+ let value=raw.trim().replace(/[\s()./\-]/g,'');
+ if(value.startsWith('00'))value='+'+value.slice(2);
+ else if(value.startsWith('0'))value='+49'+value.slice(1);
+ if(!/^\+49[1-9][0-9]{6,12}$/.test(value))throw Error('Bitte eine deutsche Handy- oder Festnetznummer eingeben.');
+ const national='0'+value.slice(3);
+ if(!(/^01[567][0-9]{7,9}$/.test(national)||/^0[2-9][0-9]{5,10}$/.test(national))||['0137','0180','0190','0700','0800','0900'].some(p=>national.startsWith(p)))throw Error('Bitte eine reguläre deutsche Handy- oder Festnetznummer eingeben.');
+ if(own.includes(value))throw Error('Eine eigene Firmennummer kann nicht als externes Rufziel verwendet werden.');
+ return value;
+}
+
 function queueRouting(input,kind='routing'){
  const status=readRouting();
  if(!status.available)throw Error(status.note||'Rufziel-Service nicht bereit.');
@@ -157,7 +170,8 @@ function queueRouting(input,kind='routing'){
  }
  if(!mappings||typeof mappings!=='object'||Array.isArray(mappings)||
   Object.keys(mappings).length!==allowedLines.length||
-  allowedLines.some(line=>!Object.hasOwn(mappings,line)||!allowedExtensions.includes(mappings[line])))throw Error('Ungültige Rufziel-Zuordnung.');
+  allowedLines.some(line=>!Object.hasOwn(mappings,line)))throw Error('Ungültige Rufziel-Zuordnung.');
+ mappings=Object.fromEntries(allowedLines.map(line=>[line,normalizeRouteTarget(mappings[line],allowedExtensions,allowedLines)]));
  const request={id:randomBytes(16).toString('hex'),createdAt:new Date().toISOString(),revision:status.revision,mappings,hours,kind,line:['hours','announcement'].includes(kind)?input.line:null,announcementId:kind==='announcement'?input.announcementId:null};
  const pending=path.join(storeDir,'pbx-routing-request.json'),temp=pending+'.'+request.id;
  fs.writeFileSync(temp,JSON.stringify(request),{mode:0o600,flag:'wx'});
