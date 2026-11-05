@@ -3,6 +3,8 @@ const nav=[...document.querySelectorAll('[data-page]')];
 let announcementTexts={},voiceDrafts={},voiceGenerating=false,voiceMessage='';
 let hoursLine='+4960316868187',hoursDraft={};
 let routeTypeDraft={},routePhoneDraft={},routeExtensionDraft={};
+let callCache=null,callsLoading=false,callError='',callRequestVersion=0,callSearchTimer=null;
+let callFilters={filter:'all',company:'all',days:'30',q:'',page:1};
 let routingState=null,routeDraft={},routeBusy=false,routeMessage='';
 let pbxStatus=null,liveStatus=null,storedNumbers=[],routingPlans={},routingPreview=null;
 const lines=[
@@ -101,6 +103,41 @@ function hoursView(){
  panel('Geschlossen-Ansage','<div class="panel-pad">'+announcementForm(line)+'<div class="forward-current"><span>Rufziel während der Öffnungszeiten</span><strong>'+esc(activeRoute(line)?targetLabel(activeRoute(line)):'Noch nicht abrufbar')+'</strong></div></div>')+'</div>';
 }
 
+
+const callDate=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',dateStyle:'short',timeStyle:'short'});
+const callTime=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',timeStyle:'short'});
+const partyLabel=value=>value==null?'Anonym':['100','101','102'].includes(value)?'Nebenstelle '+value:value.startsWith('+49')?'0'+value.slice(3):value;
+const callDuration=seconds=>{const n=Math.max(0,Number(seconds)||0),h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=Math.floor(n%60);return (h?h+':'+String(m).padStart(2,'0'):String(m))+':'+String(s).padStart(2,'0')};
+const callDirection=direction=>({incoming:'Eingehend',outgoing:'Ausgehend',internal:'Intern'}[direction]||'Anruf');
+function callsResults(){
+ const data=callCache,stats=data?.stats,source=data?.source;
+ const known=!!data&&(source?.status==='connected'||data.calls?.length>0||stats?.total>0);
+ const value=key=>known?stats?.[key]??0:'—';
+ let content='<div class="stats call-stats">'+stat('Anrufe gesamt',value('total'),'Gewählter Zeitraum')+stat('Eingehend',value('incoming'),'Externe Anrufer')+stat('Ausgehend',value('outgoing'),'Anrufe nach außen')+stat('Verpasst',value('missed'),'Eingehend · nicht angenommen')+'</div>';
+ if(callError)content+='<div class="warning" role="status">'+esc(callError)+'</div>';
+ if(source?.status!=='connected'&&data)content+='<div class="warning">'+esc(source?.note||'Die Anrufliste wird gerade nicht aktualisiert. Gespeicherte Einträge bleiben sichtbar.')+'</div>';
+ const stamp=source?.checkedAt?callTime.format(new Date(source.checkedAt)):'—';
+ let body='';
+ if(!data)body='<div class="call-empty"><span class="circle">☎</span><h3>'+(callsLoading?'Anrufliste wird geladen …':'Anrufliste noch nicht verfügbar')+'</h3><p>Hier erscheinen die tatsächlich erfassten Anrufe.</p></div>';
+ else if(!data.calls?.length)body='<div class="call-empty"><span class="circle">☎</span><h3>'+(stats?.total||callFilters.q||callFilters.filter!=='all'?'Keine Anrufe für diese Auswahl':'Noch keine abgeschlossenen Anrufe')+'</h3><p>Neue Anrufe erscheinen nach Gesprächsende innerhalb etwa einer Minute.</p></div>';
+ else body='<div class="table-wrap"><table class="table call-table"><caption class="sr-only">Anrufliste nach Zeitpunkt absteigend</caption><thead><tr><th>Richtung</th><th>Rufnummer</th><th>Firma</th><th>Zeitpunkt</th><th>Dauer</th><th>Status</th></tr></thead><tbody>'+data.calls.map(row=>{
+  const number=row.direction==='incoming'?row.from:row.to;
+  const icon=row.missed?'↙':row.direction==='incoming'?'↙':row.direction==='outgoing'?'↗':'⇄';
+  const status=row.announcement?'Ansage':row.status==='answered'?(row.direction==='outgoing'?'Verbunden':'Angenommen'):row.status==='busy'?'Besetzt':row.status==='failed'?'Fehlgeschlagen':row.direction==='incoming'?'Verpasst':'Nicht angenommen';
+  const detail=row.direction==='incoming'?'an '+partyLabel(row.to):'von '+partyLabel(row.from);
+  const phone=number?'<a href="tel:'+esc(number)+'">'+esc(partyLabel(number))+'</a>':'Anonym';
+  return '<tr><td data-label="Richtung"><span class="call-direction '+(row.missed?'missed':esc(row.direction))+'"><span class="circle">'+icon+'</span>'+callDirection(row.direction)+'</span></td><td data-label="Rufnummer"><div class="call-party"><strong>'+phone+'</strong><small>'+esc(detail)+'</small>'+(row.forwardedTo?'<small>Weiterleitung: '+esc(partyLabel(row.forwardedTo))+'</small>':'')+'</div></td><td data-label="Firma">'+esc(row.companyLabel)+'</td><td data-label="Zeitpunkt"><time datetime="'+esc(row.startedAt)+'">'+esc(callDate.format(new Date(row.startedAt)))+'</time></td><td data-label="Dauer">'+(row.status==='answered'?esc(callDuration(row.billsec)):'—')+'</td><td data-label="Status">'+pill(status,row.status==='answered'?'good':'call-status '+(row.missed?'missed':row.status))+'</td></tr>';
+ }).join('')+'</tbody></table></div>';
+ const total=data?.total||0,page=data?.page||1,pages=data?.pages||1;
+ content+=panel('Gesprächsverlauf','<div class="call-source"><span>Aktualisiert: '+esc(stamp)+' Uhr · deutsche Ortszeit</span><button class="call-refresh" data-call-refresh type="button" '+(callsLoading?'disabled':'')+'>'+(callsLoading?'Aktualisiere …':'Aktualisieren')+'</button></div>'+body+'<div class="call-pagination"><span>'+total+' '+(total===1?'Eintrag':'Einträge')+' · Seite '+page+' von '+pages+'</span><div><button type="button" data-call-page="'+(page-1)+'" '+(page<=1||callsLoading?'disabled':'')+'>Zurück</button><button type="button" data-call-page="'+(page+1)+'" '+(page>=pages||callsLoading?'disabled':'')+'>Weiter</button></div></div>');
+ return content+'<p class="call-retention">Die Liste zeigt die letzten 90 Tage, höchstens 5.000 Anrufe. Zusammengehörige Weiterleitungsabschnitte werden zusammengefasst.</p>';
+}
+function callsView(){
+ const tabs=[['all','Alle'],['incoming','Eingehend'],['outgoing','Ausgehend'],['missed','Verpasst'],['internal','Intern']];
+ return head('Anrufliste','Eingehende, ausgehende und verpasste Anrufe deiner Firmen im Überblick.')+
+ '<div class="call-controls"><div class="call-tabs" role="tablist" aria-label="Anrufe filtern">'+tabs.map(([value,title])=>'<button type="button" role="tab" data-call-filter="'+value+'" aria-selected="'+(callFilters.filter===value)+'" class="'+(callFilters.filter===value?'active':'')+'">'+title+'</button>').join('')+'</div><form id="call-search-form" class="call-search"><label class="sr-only" for="call-query">Rufnummer suchen</label><input id="call-query" name="q" type="search" maxlength="80" placeholder="Rufnummer suchen …" value="'+esc(callFilters.q)+'"><label class="sr-only" for="call-company">Firma</label><select id="call-company" name="company"><option value="all">Alle Firmen</option>'+lines.map(x=>'<option value="'+x.e164+'" '+(callFilters.company===x.e164?'selected':'')+'>'+esc(x.label)+'</option>').join('')+'</select><label class="sr-only" for="call-days">Zeitraum</label><select id="call-days" name="days">'+[['7','Letzte 7 Tage'],['30','Letzte 30 Tage'],['90','Letzte 90 Tage']].map(([v,t])=>'<option value="'+v+'" '+(callFilters.days===v?'selected':'')+'>'+t+'</option>').join('')+'</select></form></div><div id="call-results" aria-live="polite">'+callsResults()+'</div>';
+}
+
 const screens={
  overview:()=>head('Telefonie im Überblick','Drei Telekom-Rufnummern, Nebenstellen und Systemverbindungen zentral verwalten.')+notice()+
  '<div class="stats">'+stat('Telekom-Rufnummern',liveReady()&&!liveStatus.errors?.includes('registrations')?liveStatus.registrations.filter(r=>r.status==='Registered').length+' / 3':'3',liveReady()&&!liveStatus.errors?.includes('registrations')?'Aktuell registriert':'Eingerichtet · Live-Status unbekannt')+stat('Nebenstellen',liveReady()&&!liveStatus.errors?.includes('extensions')?liveStatus.extensions.filter(e=>e.online===true).length+' / 3':'3',liveReady()&&!liveStatus.errors?.includes('extensions')?'Aktuell erreichbar':'100 · 101 · 102 eingerichtet')+stat('Laufende Gespräche',liveStatus?.activeCalls??'—',liveStatus?.activeChannels==null?'Live-Abfrage nicht verfügbar':esc(liveStatus.activeChannels)+' aktive Kanäle · einzelne Verbindungen')+stat('Asterisk AMI',esc(monitor()),'Verbindung zum Monitoring')+'</div>'+
@@ -115,8 +152,7 @@ const screens={
  extensions:()=>head('Nebenstellen','Interne Anschlüsse und Softphones unserer Telefonanlage.')+
  panel('SIP-Nebenstellen',lines.map(x=>{const e=liveReady()?liveStatus.extensions?.find(e=>e.id===x.ext):null;const label=!e?'Status unbekannt':!e.configured?'Nicht eingerichtet':e.online===true?'Erreichbar':e.online===null?'Angemeldet · nicht geprüft':'Nicht erreichbar';return row('♧',x.ext+' · '+x.label,e?.registered?'Endgerät angemeldet':'SIP-Nebenstelle',pill(label,e?.online===true?'good':'neutral'))}).join(''),'Aktueller Gerätestatus')+
  panel('Geräte & Zugang','<div class="panel-pad"><p class="page-text">Registrierte Geräte, SIP-Zugangsdaten zurücksetzen, Endgeräte zuweisen und neue Nebenstellen erstellen: folgt mit der sicheren Asterisk-Anbindung. Passwörter werden niemals in der Oberfläche offengelegt.</p></div>'),
- calls:()=>head('Anrufliste','Eingehende, ausgehende und verpasste Anrufe auf einen Blick.')+
- panel('Gesprächsverlauf','<div class="panel-pad"><p class="page-text">Noch keine Live-Anrufhistorie angebunden. Hier erscheinen nach der CDR-Integration nur tatsächliche Anrufe – keine erfundenen Testdaten.</p></div>'),
+ calls:callsView,
  hours:hoursView,
  settings:()=>head('Systemeinstellungen','Verbindungen, Sicherheit und technische Konfiguration.')+
  panel('Verbindungsstatus',row('◉','Asterisk AMI',monitor(),pill(pbxStatus?.monitoring==='connected'?'Erreichbar':'Nicht bestätigt',pbxStatus?.monitoring==='connected'?'good':'neutral'))+
@@ -124,7 +160,7 @@ const screens={
  row('⇄','WireGuard','Friedberg ↔ Hetzner · zuletzt getestet',pill('Live-Prüfung folgt')))+
  panel('Administration','<div class="panel-pad"><div class="feature-grid">'+['SIP-Trunks','Nebenstellen & Geräte','Sicherheit & Rollen','Anrufaufzeichnung (optional)','Backups & Wiederherstellung','API / WebRTC'].map(x=>'<div class="feature">⚙ '+x+' <small>Später konfigurierbar</small></div>').join('')+'</div><p class="page-text">Produktive Einstellungen werden erst nach Authentifizierung, Validierung und sicherem Rollback freigegeben.</p></div>')
 };
-function render(){const id=location.hash.slice(1),page=screens[id]?id:'overview';main.innerHTML=screens[page]();nav.forEach(b=>b.classList.toggle('active',b.dataset.page===page));sidebar.classList.remove('open');document.title='TARIQ Telefonie · '+page;}
+function render(){const id=location.hash.slice(1),page=screens[id]?id:'overview';main.innerHTML=screens[page]();nav.forEach(b=>b.classList.toggle('active',b.dataset.page===page));sidebar.classList.remove('open');document.title='TARIQ Telefonie · '+page;if(page==='calls'&&!callCache&&!callsLoading)loadCallHistory();}
 nav.forEach(b=>b.addEventListener('click',()=>{location.hash=b.dataset.page;render()}));
 document.querySelector('#menu').addEventListener('click',()=>sidebar.classList.toggle('open'));
 window.addEventListener('hashchange',()=>{if(document.body.classList.contains('authenticated'))render()});
@@ -134,13 +170,13 @@ async function loadStatus(){
  if(statusLoading)return;statusLoading=true;
  const button=document.querySelector('#refresh-status');if(button)button.disabled=true;
  try{const [pbx,live]=await Promise.allSettled([api('/api/pbx/status'),api('/api/pbx/live')]);pbxStatus=pbx.status==='fulfilled'?pbx.value:{monitoring:'unavailable'};liveStatus=live.status==='fulfilled'?live.value:null;
- if(!document.querySelector('#routing-form')&&!document.querySelector('.forward-form')&&!document.querySelector('.hours-form')&&document.body.classList.contains('authenticated'))render();
+ if(!document.querySelector('#routing-form')&&!document.querySelector('.forward-form')&&!document.querySelector('.hours-form')&&!document.querySelector('.call-controls')&&document.body.classList.contains('authenticated'))render();
  }finally{statusLoading=false;if(button?.isConnected)button.disabled=false}
 }
 main.addEventListener('click',e=>{if(e.target.closest('#refresh-status'))loadStatus()});
 async function initialize(){try{const r=await api('/api/session');if(r.authenticated){document.body.classList.add('authenticated');render();loadStatus();loadRoutes()}else{document.querySelector('[name=email]').value=r.email||''}}catch{document.querySelector('#login-error').textContent='Anmeldeserver nicht erreichbar.'}}
 document.querySelector('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,button=form.querySelector('button'),error=document.querySelector('#login-error');button.disabled=true;error.textContent='';try{await api('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});form.elements.password.value='';document.body.classList.add('authenticated');render();loadStatus();loadRoutes()}catch(err){error.textContent=err.message}finally{button.disabled=false}});
-document.querySelector('#logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}catch{}document.body.classList.remove('authenticated');pbxStatus=null;liveStatus=null;document.querySelector('[name=password]').value='';});
+document.querySelector('#logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}catch{}document.body.classList.remove('authenticated');pbxStatus=null;liveStatus=null;callCache=null;callError='';++callRequestVersion;callsLoading=false;callFilters={filter:'all',company:'all',days:'30',q:'',page:1};document.querySelector('[name=password]').value='';});
 initialize();
 
 setInterval(()=>{if(document.body.classList.contains('authenticated'))loadStatus()},30000);
@@ -260,3 +296,38 @@ main.addEventListener('click',async e=>{
  }catch(err){routeBusy=false;voiceMessage=err.message;await loadRoutes()}
  if(location.hash==='#hours')render();
 });
+
+function paintCallResults(){
+ if(location.hash!=='#calls'||!document.body.classList.contains('authenticated'))return;
+ const target=document.querySelector('#call-results');if(target)target.innerHTML=callsResults();
+ document.querySelectorAll('[data-call-filter]').forEach(button=>{const active=button.dataset.callFilter===callFilters.filter;button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active))});
+}
+async function loadCallHistory(force=false){
+ if(callsLoading&&!force)return;
+ const version=++callRequestVersion;callsLoading=true;paintCallResults();
+ try{
+  const result=await api('/api/calls?'+new URLSearchParams({...callFilters,page:String(callFilters.page)}));
+  if(version!==callRequestVersion)return;
+  callCache=result;callFilters.page=result.page;callError='';
+ }catch(err){if(version===callRequestVersion)callError=err.message}
+ finally{if(version===callRequestVersion){callsLoading=false;paintCallResults()}}
+}
+main.addEventListener('click',e=>{
+ const tab=e.target.closest('[data-call-filter]');
+ if(tab){callFilters.filter=tab.dataset.callFilter;callFilters.page=1;loadCallHistory(true);return}
+ const page=e.target.closest('[data-call-page]');
+ if(page&&!page.disabled){callFilters.page=Number(page.dataset.callPage);loadCallHistory();return}
+ if(e.target.closest('[data-call-refresh]'))loadCallHistory();
+});
+main.addEventListener('input',e=>{
+ if(e.target.id!=='call-query')return;
+ callFilters.q=e.target.value;callFilters.page=1;clearTimeout(callSearchTimer);
+ callSearchTimer=setTimeout(()=>loadCallHistory(true),350);
+});
+main.addEventListener('change',e=>{
+ if(!e.target.closest('#call-search-form'))return;
+ if(['company','days'].includes(e.target.name)){callFilters[e.target.name]=e.target.value;callFilters.page=1;loadCallHistory(true)}
+});
+document.addEventListener('submit',e=>{if(e.target.id==='call-search-form'){e.preventDefault();clearTimeout(callSearchTimer);callFilters.page=1;loadCallHistory(true)}});
+window.addEventListener('hashchange',()=>{if(location.hash==='#calls'&&document.body.classList.contains('authenticated'))loadCallHistory()});
+setInterval(()=>{if(location.hash==='#calls'&&document.body.classList.contains('authenticated'))loadCallHistory()},30000);

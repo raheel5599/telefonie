@@ -179,6 +179,39 @@ function queueRouting(input,kind='routing'){
  return {id:request.id,state:'pending',message:'Einstellungen werden innerhalb einer Minute übernommen.'};
 }
 
+
+function queryCallHistory(params,now=Date.now()){
+ const allowedFilters=['all','incoming','outgoing','missed','internal'];
+ const filter=params.get('filter')||'all',company=params.get('company')||'all';
+ const dayValue=params.get('days')||'30',pageValue=params.get('page')||'1';
+ if(!allowedFilters.includes(filter)||(company!=='all'&&!allowedLines.includes(company))||!['7','30','90'].includes(dayValue)||!/^[1-9][0-9]{0,4}$/.test(pageValue))throw Error('Ungültige Anruflisten-Auswahl.');
+ const q=(params.get('q')||'').trim().slice(0,80),days=Number(dayValue);
+ let data;
+ try{data=JSON.parse(fs.readFileSync(path.join(storeDir,'call-history.json'),'utf8'))}catch{data={calls:[],source:{available:false,note:'Anrufliste wird vorbereitet.'}}}
+ const age=now-Date.parse(data.checkedAt),fresh=Number.isFinite(age)&&age>=-10000&&age<=180000;
+ const source={...data.source,checkedAt:data.checkedAt||null,
+  status:data.source?.available?(fresh?'connected':'stale'):'unavailable'};
+ let selected=(Array.isArray(data.calls)?data.calls:[]).filter(row=>row&&Number.isFinite(Date.parse(row.startedAt))&&Date.parse(row.startedAt)>=now-days*86400000);
+ if(company!=='all')selected=selected.filter(row=>row.company===company);
+ if(q){
+  const numeric=/^[+0-9\s()./\-]+$/.test(q);
+  let needle=numeric?q.replace(/\D/g,''):q.toLowerCase();
+  if(numeric&&needle.startsWith('00'))needle=needle.slice(2);
+  else if(numeric&&needle.startsWith('0'))needle='49'+needle.slice(1);
+  selected=selected.filter(row=>{
+   const values=[row.from,row.to,row.forwardedTo,row.company,row.extension,row.companyLabel].filter(v=>v!=null);
+   return values.some(v=>(numeric?String(v).replace(/\D/g,''):String(v).toLowerCase()).includes(needle));
+  });
+ }
+ const stats={total:selected.length,incoming:selected.filter(r=>r.direction==='incoming').length,
+  outgoing:selected.filter(r=>r.direction==='outgoing').length,internal:selected.filter(r=>r.direction==='internal').length,
+  missed:selected.filter(r=>r.missed===true).length};
+ if(filter==='missed')selected=selected.filter(r=>r.missed===true);
+ else if(filter!=='all')selected=selected.filter(r=>r.direction===filter);
+ const pageSize=25,total=selected.length,pages=Math.max(1,Math.ceil(total/pageSize)),page=Math.min(Number(pageValue),pages);
+ return {source,stats,filter,company,days,q,page,pageSize,pages,total,calls:selected.slice((page-1)*pageSize,page*pageSize)};
+}
+
 const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js'};
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png'};
 const respond=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(body))};
@@ -242,6 +275,12 @@ http.createServer(async(req,res)=>{
  }
 
 
+
+
+ if(pathname==='/api/calls'&&req.method==='GET'){
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  try{return respond(res,200,queryCallHistory(new URL(req.url,'http://localhost').searchParams))}catch(e){return respond(res,400,{error:e.message})}
+ }
 
  if(pathname==='/api/pbx/hours'){
   if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});

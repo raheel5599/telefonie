@@ -36,10 +36,11 @@ jobs:
           node --check speech.mjs
           node --check server.mjs
           node --check public/app.js
-          python3 -m py_compile deployment/collect-pbx-status.py deployment/pbx_routing.py deployment/business_hours.py deployment/route_targets.py deployment/build-announcements.py
+          python3 -m py_compile deployment/collect-pbx-status.py deployment/pbx_routing.py deployment/business_hours.py deployment/route_targets.py deployment/call_history.py deployment/setup-cdr.py deployment/build-announcements.py
           node tests/test-routing-ui.mjs
           node tests/test-hours-ui.mjs
           node tests/test-speech.mjs
+          node tests/test-call-history.mjs
           python3 -m unittest discover -s tests -p "test_*.py"
 
 
@@ -77,6 +78,7 @@ jobs:
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
             set -eu
             cd /home/fpadmin/apps/telefonie
+            python3 deployment/setup-cdr.py
             docker compose -p tariq-telefonie -f compose.web.yml config -q
             docker compose -p tariq-telefonie -f compose.web.yml build --pull telefonie-web
             docker compose -p tariq-telefonie -f compose.web.yml up -d --no-deps --force-recreate telefonie-web
