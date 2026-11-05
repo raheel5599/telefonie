@@ -143,40 +143,7 @@ def history_tick():
     note=None
     try:
         status=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'asterisk','-rx','cdr show status']).stdout
-        if not re.search(r'Logging:\s+Enabled',status) or not re.search(r'^\s+[^\n]*custom[^\n]*:
-            raise ValueError('CDR source unavailable')
-        text=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'tail','-c','4194304',SOURCE]).stdout
-        fresh,skipped=parse_records(text)
-    except (subprocess.SubprocessError,ValueError,OSError):
-        fresh=[]
-        connected=False
-        note='Anrufquelle derzeit nicht erreichbar. Bereits gespeicherte Anrufe bleiben sichtbar.'
-    with sqlite3.connect(database) as db:
-        db.execute('CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, start REAL NOT NULL, linked TEXT NOT NULL, data TEXT NOT NULL)')
-        db.execute('CREATE INDEX IF NOT EXISTS record_start ON records(start)')
-        db.executemany('INSERT OR REPLACE INTO records(id,start,linked,data) VALUES(?,?,?,?)',
-                       [(r['key'],r['start'],r['linked'],json.dumps(r)) for r in fresh if r['start']>=minimum])
-        db.execute('DELETE FROM records WHERE start < ?',(minimum,))
-        records=[json.loads(row[0]) for row in db.execute('SELECT data FROM records ORDER BY start DESC LIMIT 50000')]
-    database.chmod(0o600)
-    calls=conversations(records)
-    manifest=private/'calls-source.json'
-    try:
-        since=json.loads(manifest.read_text()).get('enabledAt')
-    except (OSError,ValueError):
-        since=None
-    value={'checkedAt':now.isoformat(),'source':{'available':connected,'note':note,
-           'recordingSince':since,'retentionDays':RETENTION,'limit':LIMIT,'limited':len(calls)>LIMIT},
-           'calls':calls[:LIMIT]}
-    publish(value)
-    print('Anrufliste: '+('verbunden' if connected else 'Quelle nicht erreichbar')+
-          '; '+str(len(value['calls']))+' gespeicherte Anrufe'+
-          ('; unvollständige Datensätze übersprungen' if skipped else ''))
-    return value
-
-if __name__=='__main__':
-    history_tick()
-,status,re.M|re.I):
+        if not re.search(r'Logging:\s+Enabled',status) or not re.search(r'^\s+[^\n]*custom[^\n]*$',status,re.M|re.I):
             raise ValueError('CDR source unavailable')
         text=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'tail','-c','4194304',SOURCE]).stdout
         fresh,skipped=parse_records(text)
