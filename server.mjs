@@ -99,6 +99,32 @@ function readLivePbx(){
   errors};
 }
 
+
+function readRouting(){
+ let value;
+ try{value=JSON.parse(fs.readFileSync(path.join(storeDir,'pbx-routing.json'),'utf8'))}catch{return {available:false,mappings:{},note:'Rufziel-Service wird vorbereitet.'}}
+ const age=Date.now()-Date.parse(value.checkedAt);
+ if(!Number.isFinite(age)||age< -10000||age>150000)return {available:false,mappings:{},note:'Rufziel-Status ist veraltet. Bitte erneut laden.'};
+ let pending=null;
+ try{const r=JSON.parse(fs.readFileSync(path.join(storeDir,'pbx-routing-request.json'),'utf8'));pending={id:r.id,createdAt:r.createdAt}}catch{}
+ return {...value,pending};
+}
+function queueRouting(input){
+ const status=readRouting();
+ if(!status.available)throw Error(status.note||'Rufziel-Service nicht bereit.');
+ if(status.pending)throw Error('Eine Änderung wird bereits übernommen.');
+ if(!input||typeof input!=='object'||input.revision!==status.revision)throw Error('Zuordnung wurde verändert. Bitte neu laden.');
+ const mappings=input.mappings;
+ if(!mappings||typeof mappings!=='object'||Array.isArray(mappings)||
+  Object.keys(mappings).length!==allowedLines.length||
+  allowedLines.some(line=>!Object.hasOwn(mappings,line)||!allowedExtensions.includes(mappings[line])))throw Error('Ungültige Rufziel-Zuordnung.');
+ const request={id:randomBytes(16).toString('hex'),createdAt:new Date().toISOString(),revision:status.revision,mappings};
+ const pending=path.join(storeDir,'pbx-routing-request.json'),temp=pending+'.'+request.id;
+ fs.writeFileSync(temp,JSON.stringify(request),{mode:0o600,flag:'wx'});
+ try{fs.linkSync(temp,pending)}finally{fs.unlinkSync(temp)}
+ return {id:request.id,state:'pending',message:'Rufziele werden innerhalb einer Minute übernommen.'};
+}
+
 const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js'};
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png'};
 const respond=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(body))};
@@ -159,6 +185,15 @@ http.createServer(async(req,res)=>{
   sessions.delete(cookie(req));
   res.setHeader('Set-Cookie','telefonie_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
   return respond(res,200,{ok:true});
+ }
+
+
+ if(pathname==='/api/pbx/routing'){
+  if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  if(req.method==='GET')return respond(res,200,readRouting());
+  if(!checkPost(req))return respond(res,403,{error:'Ungültiger Ursprung'});
+  try{return respond(res,202,queueRouting(await readBody(req)))}catch(e){return respond(res,409,{error:e.code==='EEXIST'?'Eine Änderung wird bereits übernommen.':e.message})}
  }
 
  if(pathname==='/api/routing-preview'&&req.method==='GET'){
