@@ -49,6 +49,8 @@ jobs:
           rsync -az --delete \
             --exclude='.git/' --exclude='.github/' --exclude='*.env' \
             --exclude='data/' --exclude='logs/' --exclude='private/' \
+            --exclude='asterisk/' --exclude='friedberg-gateway/' \
+            --exclude='compose.asterisk.yml' \
             -e "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes" \
             ./ fpadmin@167.233.32.243:/home/fpadmin/apps/telefonie/
 
@@ -58,7 +60,7 @@ jobs:
             set -eu
             cd /home/fpadmin/apps/telefonie
             docker compose -p tariq-telefonie -f compose.web.yml config -q
-            docker compose -p tariq-telefonie -f compose.web.yml up -d --no-deps telefonie-web
+            docker compose -p tariq-telefonie -f compose.web.yml up -d --no-deps --force-recreate telefonie-web
             ready=0
             for attempt in 1 2 3 4 5 6 7 8 9 10; do
               if curl -fsS --max-time 3 http://127.0.0.1:3095/api/session >/dev/null 2>&1; then
