@@ -80,3 +80,17 @@ body.authenticated .auth-screen{display:none}
 .hours-editor-grid h3{font-size:17px;margin:0}
 @media(max-width:1100px){.hours-editor-grid{grid-template-columns:1fr}}
 @media(max-width:740px){.hours-companies{grid-template-columns:1fr}.hours-company{padding:17px;grid-template-columns:1fr auto}.hours-company .eyebrow,.hours-company strong,.hours-company small{grid-column:1}.hours-company .pill{grid-column:2;grid-row:2}.hours-day{align-items:flex-start;flex-direction:column}.hours-times{width:100%;padding-left:28px}.hours-times input{flex:1;width:110px}.hours-toggle{padding:14px}}
+
+/* Custom announcement editor uses the existing dark/gold form palette. */
+.announcement-form textarea{resize:vertical;min-height:150px;line-height:1.65}
+.announcement-form .field textarea{width:100%;padding:13px;background:#0d1015;color:#f2f1ec;border:1px solid #414650;border-radius:9px;font:inherit;line-height:1.65}
+.announcement-form textarea:focus{outline:2px solid #bf9650;outline-offset:2px}
+.voice-heading{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.voice-counter{display:flex;justify-content:space-between;gap:12px;color:#929aa6;font-size:11px;margin-top:-5px}
+.voice-actions{display:grid;gap:10px;margin:18px 0 12px}
+.voice-actions .save-number{margin:0}
+.voice-activate{padding:13px 16px;border:1px solid #9b783a;border-radius:10px;background:#302719;color:#f8d28a;font-weight:700}
+.voice-activate:disabled,.voice-default:disabled{opacity:.45;cursor:not-allowed}
+.voice-default{display:block;background:transparent;color:#cbb783;border:0;text-decoration:underline;text-underline-offset:4px;padding:12px 0;margin-top:8px;font-size:12px}
+.voice-message{min-height:20px;color:#e8c06e;font-size:12px;line-height:1.6}
+@media(max-width:620px){.voice-counter{align-items:flex-start;flex-direction:column;gap:5px}}

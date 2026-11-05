@@ -11,15 +11,23 @@ jobs:
       - uses: actions/checkout@v4
       - name: Syntax und Rufziel-Tests
         run: |
+          node --check speech.mjs
           node --check server.mjs
           node --check public/app.js
           python3 -m py_compile deployment/collect-pbx-status.py deployment/pbx_routing.py deployment/business_hours.py deployment/build-announcements.py
           python3 -m unittest discover -s tests -p "test_*.py"
           node tests/test-routing-ui.mjs
           node tests/test-hours-ui.mjs
+          node tests/test-speech.mjs
 
       - name: Ansagenformat prüfen
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq espeak-ng sox
           python3 deployment/build-announcements.py
+
+      - name: Eigene Sprachansagen im Web-Image prüfen
+        run: |
+          docker build -f deployment/Dockerfile.web -t tariq-telefonie-speech:test .
+          mkdir -p /tmp/telefonie-speech-test
+          docker run --rm --network none -v "$PWD:/app:ro" -v /tmp/telefonie-speech-test:/data tariq-telefonie-speech:test node tests/test-speech-runtime.mjs

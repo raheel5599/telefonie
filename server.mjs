@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {createSpeechService} from './speech.mjs';
 import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,6 +16,7 @@ const adminId='73d61f82-e190-41f9-b828-e726cca98708';
 const sessions=new Map(), attempts=new Map();
 const storeDir=process.env.DATA_DIR||path.join(root,'data');
 fs.mkdirSync(storeDir,{recursive:true,mode:0o700});
+const speech=createSpeechService(storeDir);
 const numbersPath=path.join(storeDir,'numbers.json');
 function readNumbers(){try{const data=JSON.parse(fs.readFileSync(numbersPath,'utf8'));return Array.isArray(data)?data:[]}catch(e){if(e.code==='ENOENT')return [];throw e}}
 function writeNumbers(numbers){const temp=numbersPath+'.'+process.pid+'.tmp';fs.writeFileSync(temp,JSON.stringify(numbers,null,2),{mode:0o600});fs.renameSync(temp,numbersPath)}
@@ -143,6 +145,11 @@ function queueRouting(input,kind='routing'){
  if(status.pending)throw Error('Eine Änderung wird bereits übernommen.');
  if(!input||typeof input!=='object'||input.revision!==status.revision)throw Error('Zuordnung wurde verändert. Bitte neu laden.');
  let mappings=input.mappings;let hours=status.hours||{};
+ if(kind==='announcement'){
+  if(!status.hoursReady||!allowedLines.includes(input.line))throw Error('Ansage-Service nicht bereit.');
+  if(input.announcementId!=='default')speech.getDraft(input.line,input.announcementId);
+  mappings=status.mappings;
+ }
  if(kind==='hours'){
   if(!status.hoursReady)throw Error('Die Geschlossen-Ansagen sind noch nicht bereit.');
   if(!allowedLines.includes(input.line))throw Error('Ungültige Rufnummer.');
@@ -151,7 +158,7 @@ function queueRouting(input,kind='routing'){
  if(!mappings||typeof mappings!=='object'||Array.isArray(mappings)||
   Object.keys(mappings).length!==allowedLines.length||
   allowedLines.some(line=>!Object.hasOwn(mappings,line)||!allowedExtensions.includes(mappings[line])))throw Error('Ungültige Rufziel-Zuordnung.');
- const request={id:randomBytes(16).toString('hex'),createdAt:new Date().toISOString(),revision:status.revision,mappings,hours,kind,line:kind==='hours'?input.line:null};
+ const request={id:randomBytes(16).toString('hex'),createdAt:new Date().toISOString(),revision:status.revision,mappings,hours,kind,line:['hours','announcement'].includes(kind)?input.line:null,announcementId:kind==='announcement'?input.announcementId:null};
  const pending=path.join(storeDir,'pbx-routing-request.json'),temp=pending+'.'+request.id;
  fs.writeFileSync(temp,JSON.stringify(request),{mode:0o600,flag:'wx'});
  try{fs.linkSync(temp,pending)}finally{fs.unlinkSync(temp)}
@@ -225,17 +232,35 @@ http.createServer(async(req,res)=>{
  if(pathname==='/api/pbx/hours'){
   if(!['GET','POST'].includes(req.method))return respond(res,405,{error:'Methode nicht erlaubt'});
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
-  if(req.method==='GET')return respond(res,200,{...readRouting(),drafts:readPlans()});
+  if(req.method==='GET')return respond(res,200,{...readRouting(),drafts:readPlans(),announcementDrafts:speech.latest()});
   if(!checkPost(req))return respond(res,403,{error:'Ungültiger Ursprung'});
   try{return respond(res,202,queueRouting(await readBody(req),'hours'))}catch(e){return respond(res,409,{error:e.code==='EEXIST'?'Eine Änderung wird bereits übernommen.':e.message})}
  }
+
+ if(pathname==='/api/pbx/announcement-draft'&&req.method==='POST'){
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  if(!checkPost(req))return respond(res,403,{error:'Ungültiger Ursprung'});
+  try{
+   const input=await readBody(req),draft=await speech.generate(input.line,input.text);
+   return respond(res,200,{draft});
+  }catch(e){return respond(res,400,{error:e.message})}
+ }
+ if(pathname==='/api/pbx/announcement'&&req.method==='POST'){
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  if(!checkPost(req))return respond(res,403,{error:'Ungültiger Ursprung'});
+  try{return respond(res,202,queueRouting(await readBody(req),'announcement'))}catch(e){return respond(res,409,{error:e.code==='EEXIST'?'Eine Änderung wird bereits übernommen.':e.message})}
+ }
+
  if(pathname==='/api/pbx/announcement'&&['GET','HEAD'].includes(req.method)){
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
   const line=new URL(req.url,'http://localhost').searchParams.get('line');
   const index=allowedLines.indexOf(line);
   if(index<0)return respond(res,400,{error:'Ungültige Rufnummer'});
   try{
-   const data=fs.readFileSync(path.join(pub,'audio','tariq-closed-'+(index+1)+'.wav'));
+   const preview=new URL(req.url,'http://localhost').searchParams.get('draft');
+   const active=readRouting().announcements?.[line]?.id;
+   const id=preview||active;
+   const data=fs.readFileSync(id?speech.audioPath(line,id):path.join(pub,'audio','tariq-closed-'+(index+1)+'.wav'));
    let range;
    try{range=audioRange(req.headers.range,data.length)}catch{res.writeHead(416,{'Content-Range':'bytes */'+data.length});return res.end()}
    const headers={'Content-Type':'audio/wav','Content-Length':range?range.end-range.start+1:data.length,'Accept-Ranges':'bytes','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'};

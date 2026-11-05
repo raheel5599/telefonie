@@ -6,6 +6,8 @@ on:
     paths:
       - 'public/**'
       - 'server.mjs'
+      - 'speech.mjs'
+      - '.dockerignore'
       - 'compose.web.yml'
       - '*.png'
       - 'deployment/**'
@@ -31,11 +33,13 @@ jobs:
 
       - name: JavaScript überprüfen
         run: |
+          node --check speech.mjs
           node --check server.mjs
           node --check public/app.js
           python3 -m py_compile deployment/collect-pbx-status.py deployment/pbx_routing.py deployment/business_hours.py deployment/build-announcements.py
           node tests/test-routing-ui.mjs
           node tests/test-hours-ui.mjs
+          node tests/test-speech.mjs
           python3 -m unittest discover -s tests -p "test_*.py"
 
 
@@ -74,6 +78,7 @@ jobs:
             set -eu
             cd /home/fpadmin/apps/telefonie
             docker compose -p tariq-telefonie -f compose.web.yml config -q
+            docker compose -p tariq-telefonie -f compose.web.yml build --pull telefonie-web
             docker compose -p tariq-telefonie -f compose.web.yml up -d --no-deps --force-recreate telefonie-web
             ready=0
             for attempt in 1 2 3 4 5 6 7 8 9 10; do
@@ -91,6 +96,7 @@ jobs:
             echo "Telefonie-Webdienst antwortet auf /api/session"
             docker exec -u asterisk -w / tariq-telefonie-asterisk mkdir -p /var/lib/asterisk/sounds/custom
             for i in 1 2 3; do
+              if docker exec -u asterisk -w / tariq-telefonie-asterisk test -s "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav"; then continue; fi
               docker exec -i -u asterisk -w / tariq-telefonie-asterisk tee "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav.tmp" < "public/audio/tariq-closed-$i.wav" > /dev/null
               docker exec -u asterisk -w / tariq-telefonie-asterisk mv "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav.tmp" "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav"
             done

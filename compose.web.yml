@@ -1,6 +1,9 @@
 services:
   telefonie-web:
-    image: node:22-alpine
+    image: tariq-telefonie-web:local
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile.web
     working_dir: /app
     volumes:
       - ./:/app:ro

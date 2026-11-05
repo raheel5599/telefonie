@@ -1,5 +1,6 @@
 const main=document.querySelector('#main'),sidebar=document.querySelector('#sidebar');
 const nav=[...document.querySelectorAll('[data-page]')];
+let announcementTexts={},voiceDrafts={},voiceGenerating=false,voiceMessage='';
 let hoursLine='+4960316868187',hoursDraft={};
 let routingState=null,routeDraft={},routeBusy=false,routeMessage='';
 let pbxStatus=null,liveStatus=null,storedNumbers=[],routingPlans={},routingPreview=null;
@@ -43,6 +44,20 @@ function profileFor(line){
  p=p||{enabled:false,closedDate:null,week:weekNames.map((_,i)=>({enabled:i<5,start:'09:00',end:'17:00'}))};
  return {enabled:p.enabled,closedToday:!!p.closedDate&&p.closedDate===routingState?.today,week:p.week.map(d=>({...d}))};
 }
+
+const standardAnnouncement=line=>'Willkommen bei '+line.label+'. Sie rufen außerhalb unserer Öffnungszeiten an. Bitte versuchen Sie es zu unseren Geschäftszeiten erneut. Vielen Dank.';
+const cleanVoiceText=text=>String(text||'').trim().replace(/\s+/g,' ');
+function announcementForm(line){
+ const active=routingState?.announcements?.[line.e164];
+ const draft=voiceDrafts[line.e164]||routingState?.announcementDrafts?.[line.e164];
+ const text=announcementTexts[line.e164]??draft?.text??active?.text??standardAnnouncement(line);
+ const matches=!!draft&&draft.text===cleanVoiceText(text);
+ const disabled=routeBusy||!!routingState?.pending||!routingState?.available||!routingState?.hoursReady;
+ const preview=matches?'&draft='+draft.id:active?'&draft='+active.id:'';
+ const label=matches&&draft.id!==active?.id?'Neue Ansage vorhören':active?'Aktive eigene Ansage vorhören':'Standardansage vorhören';
+ return '<form id="announcement-form" class="announcement-form" data-line="'+line.e164+'"><div class="announcement-icon">◷</div><div class="voice-heading"><h3>Deine Geschlossen-Ansage</h3>'+pill(!routingState?.available?'Nicht geprüft':active?'Eigene Ansage aktiv':'Standardansage aktiv',active&&routingState?.available?'good':'neutral')+'</div><p class="page-text">Text eingeben, deutsche Sprachansage erzeugen und vorhören. Erst mit „Ansage aktivieren“ wird die bisherige Ansage ersetzt.</p><label class="field">Ansagetext<textarea name="announcementText" rows="6" maxlength="800" required '+(voiceGenerating?'disabled':'')+'>'+esc(text)+'</textarea></label><div class="voice-counter"><span>Deutsche Computerstimme</span><span id="voice-count">'+text.length+' / 800 Zeichen</span></div><div class="voice-actions"><button class="save-number" type="submit" '+(voiceGenerating?'disabled':'')+'>'+(voiceGenerating?'Ansage wird erzeugt …':'Ansage erzeugen')+'</button><button class="voice-activate" data-voice-activate type="button" '+(disabled||voiceGenerating||!matches||draft?.id===active?.id?'disabled':'')+'>Ansage aktivieren</button></div><p class="voice-message" role="status" aria-live="polite">'+esc(voiceMessage)+'</p><label class="announcement-label">'+label+'</label><audio id="announcement-audio" controls preload="none" src="/api/pbx/announcement?line='+encodeURIComponent(line.e164)+preview+'"></audio>'+(active?'<button class="voice-default" data-voice-default type="button" '+(disabled||voiceGenerating?'disabled':'')+'>Standardansage verwenden</button>':'')+'<p class="page-text">Die aktive Ansage wird außerhalb der Öffnungszeiten abgespielt. Anschließend endet der Anruf.</p></form>';
+}
+
 function hoursView(){
  const line=lines.find(x=>x.e164===hoursLine)||lines[0],p=profileFor(line.e164);
  const disabled=routeBusy||!!routingState?.pending||!routingState?.available||!routingState?.hoursReady;
@@ -54,7 +69,7 @@ function hoursView(){
  '<div class="forward-info"><span class="status-dot"></span><span>'+esc(routingState?.pending?'Einstellungen werden übernommen · dies dauert bis zu einer Minute.':ready?'Deutsche Ortszeit · Sommer- und Winterzeit werden automatisch berücksichtigt.':routingState?.note||'Ansagen und Zeitregeln werden vorbereitet.')+'</span></div>'+
  '<p class="forward-message" role="status" aria-live="polite">'+esc(routeMessage)+'</p>'+
  '<div class="hours-editor-grid">'+panel(esc(line.label)+' · Wochenplan','<form id="hours-form" class="panel-pad hours-form" data-line="'+line.e164+'"><div class="hours-state">'+pill(state,ready&&routingState.open?.[line.e164]?'good':'neutral')+'<span>'+esc(saved?.closedDate===routingState?.today?'Heute manuell geschlossen':saved?.enabled?'Wochenplan aktiv':'Ohne Wochenplan durchgehend erreichbar')+'</span></div><fieldset '+(disabled?'disabled':'')+'><label class="hours-toggle"><span><strong>Öffnungszeiten aktivieren</strong><small>Außerhalb dieser Zeiten hören Anrufer die Geschlossen-Ansage.</small></span><input name="hoursEnabled" type="checkbox" '+(p.enabled?'checked':'')+'></label><div class="hours-week">'+p.week.map((d,i)=>'<div class="hours-day"><label><input type="checkbox" name="day'+i+'" '+(d.enabled?'checked':'')+'> '+weekNames[i]+'</label><div class="hours-times"><input aria-label="'+weekNames[i]+' von" type="time" name="start'+i+'" value="'+esc(d.start)+'" required><span>bis</span><input aria-label="'+weekNames[i]+' bis" type="time" name="end'+i+'" value="'+esc(d.end)+'" required></div></div>').join('')+'</div><label class="hours-toggle hours-today"><span><strong>Heute geschlossen</strong><small>Gilt nur heute. Ab Mitternacht greift wieder der Wochenplan.</small></span><input name="closedToday" type="checkbox" '+(p.closedToday?'checked':'')+'></label><button class="save-number" type="submit">Speichern & aktivieren</button></fieldset><p class="page-text">Ohne aktivierte Öffnungszeiten klingeln Anrufe am gewählten Rufziel. Alte Zeitplan-Entwürfe werden erst mit diesem Button übernommen.</p></form>')+
- panel('Geschlossen-Ansage','<div class="panel-pad"><div class="announcement-icon">◷</div><h3>Deutsche Standardansage</h3><p class="page-text">Willkommen bei '+esc(line.label)+'. Sie rufen außerhalb unserer Öffnungszeiten an. Bitte versuchen Sie es zu unseren Geschäftszeiten erneut. Vielen Dank.</p><label class="announcement-label">Ansage vorhören</label><audio controls preload="none" src="/api/pbx/announcement?line='+encodeURIComponent(line.e164)+'"></audio><p class="page-text">Die Ansage wird nur bei geschlossener Firma abgespielt. Anschließend endet der Anruf.</p><div class="forward-current"><span>Rufziel während der Öffnungszeiten</span><strong>'+esc(activeRoute(line)?'Nebenstelle '+activeRoute(line):'Noch nicht abrufbar')+'</strong></div></div>')+'</div>';
+ panel('Geschlossen-Ansage','<div class="panel-pad">'+announcementForm(line)+'<div class="forward-current"><span>Rufziel während der Öffnungszeiten</span><strong>'+esc(activeRoute(line)?'Nebenstelle '+activeRoute(line):'Noch nicht abrufbar')+'</strong></div></div>')+'</div>';
 }
 
 const screens={
@@ -110,10 +125,18 @@ async function loadRoutes(){
   if(last?.id&&last.id===window.pendingRouteId&&!routingState.pending){
    routeBusy=false;routeMessage=last.message;
    if(last.state==='applied'){routeDraft={};if(window.pendingHoursLine)delete hoursDraft[window.pendingHoursLine]}
+   if(window.pendingVoiceLine){
+    voiceMessage=last.message;
+    if(last.state==='applied'&&window.pendingVoiceDefault){
+     announcementTexts[window.pendingVoiceLine]=standardAnnouncement(lines.find(x=>x.e164===window.pendingVoiceLine));
+     voiceDrafts[window.pendingVoiceLine]=null;
+    }
+   }
+   window.pendingVoiceLine=null;window.pendingVoiceDefault=false;
    window.pendingHoursLine=null;
    window.pendingRouteId=null;
   }
-  if(['#forwards','#hours'].includes(location.hash)&&document.body.classList.contains('authenticated')&&!document.activeElement?.closest('.hours-form')&&document.querySelector('audio')?.paused!==false)render();
+  if(['#forwards','#hours'].includes(location.hash)&&document.body.classList.contains('authenticated')&&!document.activeElement?.closest('.hours-form')&&!document.activeElement?.closest('.announcement-form')&&document.querySelector('audio')?.paused!==false)render();
  }catch{routingState={available:false,note:'Rufziele derzeit nicht abrufbar.'};if(['#forwards','#hours'].includes(location.hash))render()}
  finally{routesLoading=false}
 }
@@ -158,5 +181,40 @@ document.addEventListener('submit',async e=>{
   const result=await api('/api/pbx/hours',{method:'POST',body:JSON.stringify({revision:routingState.revision,line,profile})});
   window.pendingRouteId=result.id;window.pendingHoursLine=line;routeMessage=result.message;await loadRoutes();
  }catch(err){routeBusy=false;routeMessage=err.message;await loadRoutes()}
+ if(location.hash==='#hours')render();
+});
+
+main.addEventListener('input',e=>{
+ const form=e.target.closest('#announcement-form');
+ if(!form||e.target.name!=='announcementText')return;
+ announcementTexts[form.dataset.line]=e.target.value;
+ const count=form.querySelector('#voice-count');if(count)count.textContent=e.target.value.length+' / 800 Zeichen';
+ const draft=voiceDrafts[form.dataset.line]||routingState?.announcementDrafts?.[form.dataset.line];
+ form.querySelector('[data-voice-activate]').disabled=routeBusy||!!routingState?.pending||!routingState?.available||!routingState?.hoursReady||!draft||draft.text!==cleanVoiceText(e.target.value)||draft.id===routingState?.announcements?.[form.dataset.line]?.id;
+});
+document.addEventListener('submit',async e=>{
+ if(e.target.id!=='announcement-form')return;
+ e.preventDefault();if(voiceGenerating)return;
+ const line=e.target.dataset.line,text=e.target.elements.announcementText.value;
+ announcementTexts[line]=text;voiceGenerating=true;voiceMessage='Deutsche Sprachansage wird erzeugt …';render();
+ try{
+  const result=await api('/api/pbx/announcement-draft',{method:'POST',body:JSON.stringify({line,text})});
+  voiceDrafts[line]=result.draft;announcementTexts[line]=result.draft.text;
+  voiceMessage='Ansage ist bereit. Bitte vorhören und anschließend aktivieren.';
+ }catch(err){voiceMessage=err.message}
+ finally{voiceGenerating=false;if(location.hash==='#hours')render()}
+});
+main.addEventListener('click',async e=>{
+ const button=e.target.closest('[data-voice-activate],[data-voice-default]');
+ if(!button||routeBusy||routingState?.pending||!routingState?.available)return;
+ const form=button.closest('#announcement-form'),line=form.dataset.line,isDefault=button.hasAttribute('data-voice-default');
+ const draft=voiceDrafts[line]||routingState?.announcementDrafts?.[line];
+ if(!isDefault&&(!draft||draft.text!==cleanVoiceText(form.elements.announcementText.value)))return;
+ routeBusy=true;voiceMessage='Ansage wird aktiviert …';routeMessage=voiceMessage;render();
+ try{
+  const result=await api('/api/pbx/announcement',{method:'POST',body:JSON.stringify({revision:routingState.revision,line,announcementId:isDefault?'default':draft.id})});
+  window.pendingRouteId=result.id;window.pendingVoiceLine=line;window.pendingVoiceDefault=isDefault;
+  voiceMessage=result.message;await loadRoutes();
+ }catch(err){routeBusy=false;voiceMessage=err.message;await loadRoutes()}
  if(location.hash==='#hours')render();
 });

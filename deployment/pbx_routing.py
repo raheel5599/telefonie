@@ -1,5 +1,8 @@
 """Controlled incoming-route changes; no SIP reload, restart or network changes."""
 import datetime
+import base64
+import io
+import wave
 import hashlib
 import json
 import pathlib
@@ -43,8 +46,10 @@ def validate_mappings(mappings):
         raise ValueError('Nur Nebenstellen 100, 101 und 102 sind erlaubt.')
     return dict(mappings)
 
-def revision(mappings, profiles=None):
+def revision(mappings, profiles=None, announcements=None):
     value = mappings if profiles is None else {'mappings': mappings, 'hours': profiles}
+    if announcements is not None:
+        value = {'settings': value, 'announcements': announcements}
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 def parse_programs(output):
@@ -228,6 +233,66 @@ def save_state(value):
     tmp.chmod(0o600)
     tmp.replace(STATE)
 
+
+def validate_announcement_id(value):
+    if value != 'default' and (not isinstance(value, str) or not re.fullmatch(r'[a-f0-9]{32}', value)):
+        raise ValueError('Ungültige Ansage.')
+    return value
+
+def validate_audio(data):
+    if len(data) > 1500000:
+        raise ValueError('Ansage ist zu groß.')
+    try:
+        with wave.open(io.BytesIO(data)) as audio:
+            if (audio.getnchannels(), audio.getframerate(), audio.getsampwidth()) != (1, 8000, 2):
+                raise ValueError('Ungültiges Ansagenformat.')
+            duration = audio.getnframes() / 8000
+            if not 0.1 <= duration <= 90:
+                raise ValueError('Ungültige Ansagelänge.')
+    except (wave.Error, EOFError):
+        raise ValueError('Ungültige Audiodatei.')
+    return hashlib.sha256(data).hexdigest()
+
+def read_announcement(line, identifier):
+    if line not in LINES:
+        raise ValueError('Ungültige Rufnummer.')
+    validate_announcement_id(identifier)
+    script = """const fs=require('fs');let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>{
+ const x=JSON.parse(s),lines=['+4960316868187','+4960316843466','+4960316871811'],i=lines.indexOf(x.line);
+ if(i<0||!(x.id==='default'||/^[a-f0-9]{32}$/.test(x.id)))process.exit(1);
+ const p=x.id==='default'?'/app/public/audio/tariq-closed-'+(i+1)+'.wav':'/data/announcements/'+x.id+'.wav';
+ if(fs.statSync(p).size>1500000)process.exit(1);
+ const meta=x.id==='default'?{id:'default',line:x.line}:JSON.parse(fs.readFileSync('/data/announcements/'+x.id+'.json','utf8'));
+ if(meta.id!==x.id||meta.line!==x.line)process.exit(1);
+ process.stdout.write(JSON.stringify({meta,audio:fs.readFileSync(p).toString('base64')}));
+});"""
+    value = json.loads(run(['docker', 'exec', '-i', WEB, 'node', '-e', script],
+                           input=json.dumps({'line': line, 'id': identifier})).stdout)
+    data = base64.b64decode(value['audio'], validate=True)
+    digest = validate_audio(data)
+    meta = value['meta']
+    if identifier != 'default' and (not isinstance(meta.get('text'), str) or not 1 <= len(meta['text']) <= 800):
+        raise ValueError('Ungültiger Ansagetext.')
+    return data, {'id': identifier, 'line': line, 'text': meta.get('text', ''),
+                  'sha256': digest, 'duration': len(data) / 16000}
+
+def installed_audio(line):
+    target = '/var/lib/asterisk/sounds/custom/tariq-closed-' + str(LINES.index(line) + 1) + '.wav'
+    return subprocess.run(['docker', 'exec', '-u', 'asterisk', '-w', '/', CONTAINER, 'cat', target],
+                          check=True, capture_output=True, timeout=15).stdout
+
+def install_announcement(line, data):
+    digest = validate_audio(data)
+    target = '/var/lib/asterisk/sounds/custom/tariq-closed-' + str(LINES.index(line) + 1) + '.wav'
+    subprocess.run(['docker', 'exec', '-i', '-u', 'asterisk', '-w', '/', CONTAINER,
+                    'tee', target + '.custom-tmp'], input=data, stdout=subprocess.DEVNULL,
+                   stderr=subprocess.PIPE, check=True, timeout=15)
+    run(['docker', 'exec', '-u', 'asterisk', '-w', '/', CONTAINER,
+         'mv', target + '.custom-tmp', target])
+    if hashlib.sha256(installed_audio(line)).hexdigest() != digest:
+        raise ValueError('Ansageprüfung in Asterisk fehlgeschlagen.')
+
+
 def routing_tick():
     request = None
     try:
@@ -243,6 +308,17 @@ def routing_tick():
             raise ValueError('Host- und Container-Wählplan weichen außerhalb der verwalteten Regeln ab.')
         saved = json.loads(STATE.read_text()) if STATE.exists() else {}
         profiles = all_profiles(saved.get('hours', {}), LINES)
+        announcements = dict(saved.get('announcements', {}))
+        for line, active in announcements.items():
+            if line not in LINES:
+                raise ValueError('Ungültige gespeicherte Ansage.')
+            if hashlib.sha256(installed_audio(line)).hexdigest() != active.get('sha256'):
+                data, meta = read_announcement(line, active['id'])
+                if meta['sha256'] != active.get('sha256'):
+                    raise ValueError('Gespeicherte Ansage wurde außerhalb der Verwaltung verändert.')
+                install_announcement(line, data)
+        requested_audio = None
+        old_audio = None
         desired = validate_mappings(saved.get('mappings', current))
         desired_profiles = profiles
         last = saved.get('lastRequest')
@@ -256,8 +332,13 @@ def routing_tick():
             age = (datetime.datetime.now(datetime.timezone.utc) - created).total_seconds()
             if age < -10 or age > 300:
                 raise ValueError('Änderungsauftrag ist abgelaufen. Bitte erneut übernehmen.')
-            if request.get('revision') != revision(current, profiles):
+            if request.get('revision') != revision(current, profiles, announcements):
                 raise ValueError('Einstellungen wurden inzwischen verändert. Bitte neu laden.')
+            if request.get('kind') == 'announcement':
+                if not ready or request.get('line') not in LINES:
+                    raise ValueError('Ansage-Service nicht bereit.')
+                data, metadata = read_announcement(request['line'], request.get('announcementId'))
+                requested_audio = (request['line'], data, metadata)
             desired = validate_mappings(request.get('mappings'))
             desired_profiles = all_profiles(request.get('hours', profiles), LINES)
             if desired_profiles != profiles and not ready:
@@ -266,7 +347,7 @@ def routing_tick():
         if programs and not ready:
             raise ValueError('Geschlossen-Ansage fehlt. Bestehende Regeln bleiben erhalten.')
         new_config = rewrite_apps(host, apps, managed)
-        if request:
+        if request and request.get('kind') != 'announcement':
             backup = HOST.with_name('extensions.conf.backup-web-' +
                          datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
             backup.write_text(host)
@@ -275,28 +356,39 @@ def routing_tick():
         try:
             set_runtime(old_apps, apps)
             if request:
-                HOST.write_text(new_config)
-                if HOST.read_text() != new_config:
+                if requested_audio:
+                    audio_line, data, metadata = requested_audio
+                    old_audio = installed_audio(audio_line)
+                    install_announcement(audio_line, data)
+                    if metadata['id'] == 'default':
+                        announcements.pop(audio_line, None)
+                    else:
+                        announcements[audio_line] = metadata
+                if request.get('kind') != 'announcement':
+                    HOST.write_text(new_config)
+                if request.get('kind') != 'announcement' and HOST.read_text() != new_config:
                     raise ValueError('Dateiprüfung fehlgeschlagen.')
                 last = {'id': request['id'], 'state': 'applied', 'at': now(),
-                        'message': 'Öffnungszeiten und Ansage in Asterisk aktiviert.' if request.get('kind') == 'hours' else 'Rufziele übernommen und in Asterisk bestätigt.'}
+                        'message': 'Ansage aktiviert und in Asterisk bestätigt.' if request.get('kind') == 'announcement' else 'Öffnungszeiten und Ansage in Asterisk aktiviert.' if request.get('kind') == 'hours' else 'Rufziele übernommen und in Asterisk bestätigt.'}
                 if request.get('kind') == 'hours' and request.get('line') in LINES and request['line'] not in configured_hours:
                     configured_hours.append(request['line'])
-                save_state({'mappings': desired, 'hours': desired_profiles, 'configuredHours': configured_hours, 'lastRequest': last})
+                save_state({'mappings': desired, 'hours': desired_profiles, 'configuredHours': configured_hours, 'announcements': announcements, 'lastRequest': last})
         except Exception:
             try:
-                if request:
+                if request and request.get('kind') != 'announcement':
                     HOST.write_text(host)
+                if old_audio is not None:
+                    install_announcement(request['line'], old_audio)
             finally:
                 set_runtime(incoming_apps(cli('dialplan show')), old_apps)
             raise
         current = parse_live(cli('dialplan show'))
         local_now = datetime.datetime.now(datetime.timezone.utc).astimezone(TZ)
         status = {'checkedAt': now(), 'available': True, 'mappings': current,
-                  'hours': desired_profiles, 'hoursReady': ready, 'hoursConfigured': configured_hours,
+                  'hours': desired_profiles, 'hoursReady': ready, 'hoursConfigured': configured_hours, 'announcements': announcements,
                   'today': local_now.date().isoformat(), 'timezone': 'Europe/Berlin',
                   'open': {n: is_open(desired_profiles[n], local_now) for n in LINES},
-                  'revision': revision(current, desired_profiles), 'lastRequest': last}
+                  'revision': revision(current, desired_profiles, announcements), 'lastRequest': last}
         publish(status, request.get('id') if request else None)
         return status
     except Exception as exc:

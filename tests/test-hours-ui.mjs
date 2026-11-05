@@ -8,8 +8,10 @@ vm.runInContext(source,ctx);
 let html=vm.runInContext('screens.hours()',ctx);
 assert.equal((html.match(/class="hours-day"/g)||[]).length,7);
 assert(html.includes('Heute geschlossen'));
-assert(html.includes('Deutsche Standardansage'));
-assert(html.includes('<audio controls'));
+assert(html.includes('Deine Geschlossen-Ansage'));
+assert(html.includes('name="announcementText"'));
+assert(html.includes('Ansage erzeugen'));
+assert(html.includes('controls preload="none"'));
 assert(html.includes('fieldset disabled'));
 ctx.input={available:true,hoursReady:true,today:'2026-11-05',hoursConfigured:[],mappings:{'+4960316868187':'100'},open:{'+4960316868187':true},
  drafts:{'+4960316868187':{enabled:true,days:[0,1],start:'10:00',end:'15:00'}}};
@@ -45,3 +47,11 @@ assert.equal(vm.runInContext("audioRange('bytes=-10',100).start",env),90);
 assert.throws(()=>vm.runInContext("audioRange('bytes=100-101',100)",env));
 assert.throws(()=>vm.runInContext("audioRange('bytes=0-1,4-5',100)",env));
 console.log('Safari audio range handling tests passed.');
+
+vm.runInContext("routingState.announcementDrafts={'+4960316868187':{id:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',text:'Eigener Text'}}",ctx);
+html=vm.runInContext('screens.hours()',ctx);
+assert(html.includes('Eigener Text'));
+assert(html.includes('Neue Ansage vorhören'));
+assert(html.includes('draft=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'));
+assert(html.includes('Ansage aktivieren'));
+console.log('Custom announcement editor and preview tests passed.');
