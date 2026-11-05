@@ -82,6 +82,7 @@ def collect():
     try:
         route_status = routing_tick()
         print('Rufziel-Service: ' + ('bereit' if route_status['available'] else route_status.get('note', 'nicht bereit')))
+        print('Öffnungszeiten: ' + ('bereit' if route_status.get('hoursReady') else 'noch nicht bereit'))
     except (subprocess.SubprocessError, ValueError, OSError):
         print('Rufziel-Service derzeit nicht verfügbar.')
     status['monitoring'] = 'connected' if not status['errors'] else 'partial'
