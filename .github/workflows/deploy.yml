@@ -91,7 +91,8 @@ jobs:
             echo "Telefonie-Webdienst antwortet auf /api/session"
             docker exec -u asterisk -w / tariq-telefonie-asterisk mkdir -p /var/lib/asterisk/sounds/custom
             for i in 1 2 3; do
-              docker cp "public/audio/tariq-closed-$i.wav" "tariq-telefonie-asterisk:/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav"
+              docker exec -i -u asterisk -w / tariq-telefonie-asterisk tee "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav.tmp" < "public/audio/tariq-closed-$i.wav" > /dev/null
+              docker exec -u asterisk -w / tariq-telefonie-asterisk mv "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav.tmp" "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav"
             done
             python3 deployment/collect-pbx-status.py --install-cron
 
