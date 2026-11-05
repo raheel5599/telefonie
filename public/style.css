@@ -27,3 +27,10 @@ body.authenticated .auth-screen{display:none}
 .field input:not([type=checkbox]),.field select{width:100%;padding:12px;background:#0d1015;color:#f2f1ec;border:1px solid #414650;border-radius:9px;font:inherit}
 .field:has(input[type=checkbox]){flex-direction:row;align-items:center}
 .days{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.days label{border:1px solid #343a43;border-radius:9px;padding:9px;color:#cdd1d7;font-size:12px}
+
+
+/* Status controls use the existing charcoal and gold palette. */
+.live-toolbar{display:flex;align-items:center;justify-content:space-between;gap:15px;margin:-8px 0 24px;color:#929aa6;font-size:12px}
+.live-toolbar button{border:1px solid #6c5226;border-radius:9px;padding:10px 14px;background:#27231e;color:#f8d28a;font-size:12px}
+.live-toolbar button:hover{background:#403018}.live-toolbar button:disabled{opacity:.55;cursor:wait}
+@media(max-width:620px){.live-toolbar{align-items:flex-start;flex-direction:column}.stat strong{font-size:24px}}
