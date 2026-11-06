@@ -58,17 +58,19 @@ def recover_rtp_directory(rtp,backup,text):
     candidate=backup/'rtp.recovered.conf'
     candidate.write_text(text);candidate.chmod(0o644)
     code="""const fs=require('fs');
- const source='/repair/rtp.conf',old='/backup/rtp.host-directory',next='/backup/rtp.recovered.conf';
- if(!fs.lstatSync(source).isDirectory()||fs.readdirSync(source).length||!fs.lstatSync(next).isFile())throw Error('Unexpected RTP source');
+ const stamp=process.argv[1];if(!/^[0-9-]+$/.test(stamp))throw Error('Invalid repair identifier');
+ const source='/repair/rtp.conf',old='/repair/.rtp.conf.empty-source-'+stamp,next='/backup/rtp.recovered.conf';
+ if(!fs.lstatSync(source).isDirectory()||fs.readdirSync(source).length||!fs.lstatSync(next).isFile()||fs.existsSync(old))throw Error('Unexpected RTP source');
  fs.renameSync(source,old);
- try{fs.renameSync(next,source)}catch(error){fs.renameSync(old,source);throw error}
+ try{fs.copyFileSync(next,source,fs.constants.COPYFILE_EXCL);fs.chmodSync(source,0o644)}
+ catch(error){if(fs.existsSync(source))fs.unlinkSync(source);fs.renameSync(old,source);throw error}
  """
     run(['docker','run','--rm','--pull=never','--network','none','--read-only',
          '--user','0','--cap-drop=ALL','--cap-add=DAC_OVERRIDE',
          '--security-opt','no-new-privileges:true','--memory','64m','--pids-limit','32',
          '--mount','type=bind,src='+str(rtp.parent)+',dst=/repair',
          '--mount','type=bind,src='+str(backup)+',dst=/backup',
-         'node:22-alpine','node','-e',code])
+         'node:22-alpine','node','-e',code,backup.name])
     if not rtp.is_file() or rtp.read_text()!=text:
         raise ValueError('RTP-Dateiquelle konnte nicht wiederhergestellt werden.')
 
