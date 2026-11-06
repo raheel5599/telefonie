@@ -54,7 +54,7 @@ def setup():
     active=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'cat','/etc/asterisk/pjsip.conf'])
     if original!=active:
         raise ValueError('Host- und aktive SIP-Datei unterscheiden sich. Keine Änderung durchgeführt.')
-    print('CONFIG_STRUCTURE '+str({'includes':bool(re.search(r'^\s*#(?:try)?include',original,re.M)),'telekomSections':[{'hasType':bool(re.search(r'^\s*type\s*=',b,re.M)),'isEndpoint':bool(re.search(r'^\s*type\s*=\s*endpoint\s*(?:;[^\n]*)?
+    updated=update_config(original)
     backup=ROOT/'private/caller-id-backups'/datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S-%f')
     backup.mkdir(parents=True,mode=0o700)
     target=backup/'pjsip.conf';target.write_text(original);target.chmod(0o600)
@@ -73,66 +73,17 @@ def setup():
 
 
 HOST=pathlib.Path('/home/fpadmin/apps/telefonie/asterisk/pjsip.conf')
+original=HOST.read_text()
+active=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'cat','/etc/asterisk/pjsip.conf'])
+blocks=[]
+for block in re.split(r'(?=^[ \t]*\[)',original,flags=re.M):
+ if not re.match(r'[ \t]*\[telekom\]',block):continue
+ kind=re.findall(r'^[ \t]*type[ \t]*=[ \t]*(\w+)',block,re.M)
+ contexts=re.findall(r'^[ \t]*context[ \t]*=[ \t]*([-\w]+)',block,re.M)
+ blocks.append({'types':kind,'contextIsFromTelekom':'from-telekom' in contexts,'hasContext':bool(contexts),'inherited':bool(re.match(r'[ \t]*\[telekom\][ \t]*\(',block))})
+print('CONFIG_STRUCTURE '+str({'includes':bool(re.search(r'^[ \t]*#',original,re.M)),'telekomSections':blocks,'hostMatchesActive':original==active}))
 try:
- original=HOST.read_text()
- active=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'cat','/etc/asterisk/pjsip.conf'])
  updated=update_config(original)
- print('CALLER_ID_PREFLIGHT hostMatchesActive='+str(original==active)+' writable='+str(__import__('os').access(HOST,__import__('os').W_OK))+' endpointPatchValid='+str('trust_id_inbound=yes' in updated))
-except Exception as exc:
- print('CALLER_ID_PREFLIGHT error='+type(exc).__name__+(' '+str(exc) if isinstance(exc,ValueError) else ''))
- raise SystemExit(1)
-,b,re.M)),'contextMatches':bool(re.search(r'^\s*context\s*=\s*from-telekom\s*(?:;[^\n]*)?
-    backup=ROOT/'private/caller-id-backups'/datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S-%f')
-    backup.mkdir(parents=True,mode=0o700)
-    target=backup/'pjsip.conf';target.write_text(original);target.chmod(0o600)
-    try:
-        # Preserve the inode of the existing file bind mount.
-        HOST.write_text(updated)
-        cli('module reload res_pjsip.so')
-        if not enabled(cli('pjsip show endpoint telekom')):
-            raise ValueError('Provider-Anruferkennung konnte nicht bestätigt werden.')
-    except Exception:
-        HOST.write_text(original)
-        cli('module reload res_pjsip.so')
-        raise
-    print('Anruferkennung: Provider-ID für den Telekom-Endpunkt aktiviert und bestätigt.')
-
-
-
-HOST=pathlib.Path('/home/fpadmin/apps/telefonie/asterisk/pjsip.conf')
-try:
- original=HOST.read_text()
- active=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'cat','/etc/asterisk/pjsip.conf'])
- updated=update_config(original)
- print('CALLER_ID_PREFLIGHT hostMatchesActive='+str(original==active)+' writable='+str(__import__('os').access(HOST,__import__('os').W_OK))+' endpointPatchValid='+str('trust_id_inbound=yes' in updated))
-except Exception as exc:
- print('CALLER_ID_PREFLIGHT error='+type(exc).__name__)
- raise SystemExit(1)
-,b,re.M)),'inherited':bool(re.match(r'\s*\[telekom\]\s*\(',b))} for b in re.split(r'(?=^\s*\[[^\]\r\n]+\])',original,flags=re.M) if re.match(r'\s*\[telekom\]',b)]}))
- updated=update_config(original)
-    backup=ROOT/'private/caller-id-backups'/datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S-%f')
-    backup.mkdir(parents=True,mode=0o700)
-    target=backup/'pjsip.conf';target.write_text(original);target.chmod(0o600)
-    try:
-        # Preserve the inode of the existing file bind mount.
-        HOST.write_text(updated)
-        cli('module reload res_pjsip.so')
-        if not enabled(cli('pjsip show endpoint telekom')):
-            raise ValueError('Provider-Anruferkennung konnte nicht bestätigt werden.')
-    except Exception:
-        HOST.write_text(original)
-        cli('module reload res_pjsip.so')
-        raise
-    print('Anruferkennung: Provider-ID für den Telekom-Endpunkt aktiviert und bestätigt.')
-
-
-
-HOST=pathlib.Path('/home/fpadmin/apps/telefonie/asterisk/pjsip.conf')
-try:
- original=HOST.read_text()
- active=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'cat','/etc/asterisk/pjsip.conf'])
- updated=update_config(original)
- print('CALLER_ID_PREFLIGHT hostMatchesActive='+str(original==active)+' writable='+str(__import__('os').access(HOST,__import__('os').W_OK))+' endpointPatchValid='+str('trust_id_inbound=yes' in updated))
-except Exception as exc:
- print('CALLER_ID_PREFLIGHT error='+type(exc).__name__)
- raise SystemExit(1)
+ print('CALLER_ID_PREFLIGHT writable='+str(__import__('os').access(HOST,__import__('os').W_OK))+' endpointPatchValid='+str('trust_id_inbound=yes' in updated))
+except ValueError as exc:
+ print('CALLER_ID_PREFLIGHT '+str(exc))
