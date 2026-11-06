@@ -68,8 +68,8 @@ def patch_caddy(text):
         i+=1
     if depth:raise ValueError('Telefonie-Proxy ist unvollständig.')
     block=text[start:i]
-    block=re.sub(r'^[ \t]*(?:header[ \t]+)?Permissions-Policy[^\n]*\n','',block,flags=re.M)
-    block=block[:-1].rstrip()+'\n  header Permissions-Policy "camera=(), microphone=(self), geolocation=()"\n}'
+    block=re.sub(r'^[ \t]*(?:header[ \t]+)?>?Permissions-Policy[^\n]*\n','',block,flags=re.M)
+    block=block[:-1].rstrip()+'\n  header >Permissions-Policy "camera=(), microphone=(self), geolocation=()"\n}'
     return text[:start]+block+text[i:]
 
 def setup_caddy(backup):

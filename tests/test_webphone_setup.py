@@ -19,6 +19,7 @@ class WebPhoneSetupTests(unittest.TestCase):
         original='(security_headers) {\n header Permissions-Policy "microphone=()"\n}\napp.example.de {\n import security_headers\n}\ntelefonie.tariq-itconsulting.de {\n import security_headers\n reverse_proxy web:3095\n}\n'
         result=m.patch_caddy(original)
         self.assertEqual(result.count('microphone=(self)'),1)
+        self.assertIn('header >Permissions-Policy',result)
         self.assertIn('app.example.de {\n import security_headers\n}',result)
         self.assertEqual(m.patch_caddy(result),result)
     def test_browser_include_is_before_immutable_hours(self):

@@ -21,6 +21,10 @@ try{
  for(let f=0;f<40;f++){const frame=new ArrayBuffer(640),v=new DataView(frame);for(let i=0;i<320;i++)v.setInt16(i*2,Math.round(Math.sin((f*320+i)*2*Math.PI*440/16000)*4000),true);media.send(frame);await new Promise(r=>setTimeout(r,20))}
  await wait(()=>signal>500,'Audio-Rückweg konnte nicht bestätigt werden.');
  console.log('Browser-Telefonie: private Steuerung, Audio-WebSocket und Asterisk-Echo bestätigt.');
+ const publicPage=await fetch('https://telefonie.tariq-itconsulting.de/',{method:'HEAD',signal:AbortSignal.timeout(10000)});
+ const policy=publicPage.headers.get('permissions-policy')||'';
+ if(publicPage.status!==200||!policy.includes('microphone=(self)')||policy.includes('microphone=()'))throw Error('Öffentliche Mikrofonfreigabe wurde nicht bestätigt.');
+ console.log('Telefonie-Mikrofonregel: auf der öffentlichen HTTPS-Seite bestätigt.');
 }finally{
  media?.close();for(const[type,id]of resources)await ari('DELETE',type+'/'+id).catch(()=>{});events?.close();
 }
