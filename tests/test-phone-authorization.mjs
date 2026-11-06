@@ -15,6 +15,9 @@ try{
  for(const resource of ['/api/numbers','/api/settings','/api/settings/export','/api/calls','/api/pbx/status','/api/pbx/live','/api/pbx/hours','/api/phone/users'])assert.equal((await fetch(base+resource,{headers})).status,401,resource);
  assert.equal((await fetch(base+'/api/phone/status',{headers})).status,200);
  assert.equal((await fetch(base+'/api/phone/connect',{method:'POST',headers:{...headers,Origin:'https://evil.example'},body:'{}'})).status,403);
+ const changed=await fetch(base+'/api/phone/password',{method:'POST',headers,body:JSON.stringify({currentPassword:created.password,newPassword:'changed-phone-password',id:'someone-else'})});assert.equal(changed.status,200);
+ assert.equal((await (await fetch(base+'/api/session',{headers})).json()).authenticated,false);
+ assert.equal(await accounts.authenticate('desk',created.password),null);assert(await accounts.authenticate('desk','changed-phone-password'));
  await accounts.change({id:created.user.id,action:'disable'});
  assert.equal((await fetch(base+'/api/phone/status',{headers})).status,401);
  assert.equal((await (await fetch(base+'/api/session',{headers})).json()).authenticated,false);

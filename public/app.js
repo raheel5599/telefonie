@@ -228,7 +228,7 @@ async function loadStatus(){
  if(statusLoading)return;statusLoading=true;
  const button=document.querySelector('#refresh-status');if(button)button.disabled=true;
  try{const [pbx,live]=await Promise.allSettled([api('/api/pbx/status'),api('/api/pbx/live')]);pbxStatus=pbx.status==='fulfilled'?pbx.value:{monitoring:'unavailable'};liveStatus=live.status==='fulfilled'?live.value:null;
- if(!document.querySelector('#routing-form')&&!document.querySelector('.forward-form')&&!document.querySelector('.hours-form')&&!document.querySelector('.call-controls')&&!document.querySelector('#phone-user-form')&&!document.querySelector('#phone-dial-form')&&(!document.querySelector('.number-profile-form')||!document.activeElement?.closest('.number-profile-form'))&&document.body.classList.contains('authenticated'))render();
+ if(!document.querySelector('#routing-form')&&!document.querySelector('.forward-form')&&!document.querySelector('.hours-form')&&!document.querySelector('.call-controls')&&!document.querySelector('#phone-user-form')&&!document.querySelector('#phone-password-form')&&!document.querySelector('#phone-dial-form')&&(!document.querySelector('.number-profile-form')||!document.activeElement?.closest('.number-profile-form'))&&document.body.classList.contains('authenticated'))render();
  }finally{statusLoading=false;if(button?.isConnected)button.disabled=false}
 }
 main.addEventListener('click',e=>{if(e.target.closest('#refresh-status'))loadStatus()});

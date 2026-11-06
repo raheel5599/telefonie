@@ -18,6 +18,13 @@ try{
  await assert.rejects(accounts.create({username:'other',name:'Wrong',company:'+491701234567'}));
  const fresh=await accounts.authenticate('office',reset.password);
  await accounts.change({id:fresh.id,action:'assign',company:PHONE_LINES[2]});assert.equal(accounts.identity({accountId:fresh.id,version:fresh.version}),null);assert.equal((await accounts.authenticate('office',reset.password)).company,PHONE_LINES[2]);
+ await assert.rejects(accounts.changePassword(fresh.id,'wrong','new-secret-password'));
+ await assert.rejects(accounts.changePassword(fresh.id,reset.password,'short'));
+ const beforePassword=await accounts.authenticate('office',reset.password);
+ await accounts.changePassword(fresh.id,reset.password,'new-secret-password');
+ assert.equal(await accounts.authenticate('office',reset.password),null);assert(await accounts.authenticate('office','new-secret-password'));
+ assert.equal(accounts.identity({accountId:fresh.id,version:beforePassword.version}),null);
+ assert(!fs.readFileSync(path.join(dir,'phone-users.json'),'utf8').includes('new-secret-password'));
  assert.equal(fs.statSync(path.join(dir,'phone-users.json')).mode&0o777,0o600);
  console.log('Phone accounts: hashes, isolated identities, assignment validation and immediate revocation passed.');
 }finally{fs.rmSync(dir,{recursive:true,force:true})}

@@ -42,6 +42,15 @@ export function createPhoneAccounts(directory){
   if(password){user.salt=salt;user.hash=hash}else if(input.action==='assign')user.company=input.company;else user.enabled=input.action==='enable';
   user.version++;write(users);return {user:publicUser(user),...(password?{password}:{})};
  }
+ async function changePassword(id,currentPassword,newPassword){
+  const original=find(id);
+  if(!original?.enabled||typeof currentPassword!=='string'||currentPassword.length>512||!await authenticate(original.username,currentPassword))throw Error('Das bisherige Passwort ist nicht korrekt.');
+  if(typeof newPassword!=='string'||newPassword.length<12||newPassword.length>128)throw Error('Das neue Passwort muss 12 bis 128 Zeichen haben.');
+  if(newPassword===currentPassword)throw Error('Bitte ein anderes neues Passwort wählen.');
+  const salt=randomBytes(16).toString('hex'),hash=await passwordHash(newPassword,salt);
+  const users=read(),user=users.find(u=>u.id===id);if(!user?.enabled||user.version!==original.version)throw Error('Der Zugang wurde geändert. Bitte erneut anmelden.');
+  user.salt=salt;user.hash=hash;user.version++;write(users);
+ }
  function identity(entry){const user=find(entry?.accountId);return user?.enabled&&user.version===entry.version?{role:'phone',accountId:user.id,username:user.username,name:user.name,company:user.company,device:user.device}:null}
- return {list,find,create,change,authenticate,identity};
+ return {list,find,create,change,authenticate,identity,changePassword};
 }

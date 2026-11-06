@@ -374,7 +374,15 @@ const webServer=http.createServer(async(req,res)=>{
   if(!checkPost(req))return respond(res,403,{error:'Ungültiger Ursprung'});
   try{
    const input=await readBody(req);let result={ok:true};
-   if(pathname==='/api/phone/connect')result=phoneService.connect(identity,sid);
+   if(pathname==='/api/phone/password'){
+    if(identity.role!=='phone')return respond(res,403,{error:'Diese Funktion gilt für Telefonbenutzer.'});
+    if(phoneService.state(identity).currentCall)return respond(res,409,{error:'Bitte zuerst das laufende Gespräch beenden.'});
+    const key='password:'+identity.accountId,now=Date.now(),limit=attempts.get(key)||{until:0,count:0};if(now>limit.until){limit.count=0;limit.until=now+60000}attempts.set(key,limit);if(++limit.count>5)return respond(res,429,{error:'Zu viele Versuche. Bitte eine Minute warten.'});
+    await phoneAccounts.changePassword(identity.accountId,input.currentPassword,input.newPassword);
+    phoneService.revoke(identity.accountId);for(const [key,entry]of sessions)if(entry.accountId===identity.accountId)sessions.delete(key);
+    res.setHeader('Set-Cookie','telefonie_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');return respond(res,200,{ok:true,loginRequired:true});
+   }
+   else if(pathname==='/api/phone/connect')result=phoneService.connect(identity,sid);
    else if(pathname==='/api/phone/offline')phoneService.closeSession(sid);
    else if(pathname==='/api/phone/call')result=await phoneService.call(identity,sid,input);
    else if(pathname==='/api/phone/answer')result=await phoneService.answer(identity,sid,input.id);
