@@ -1,0 +1,68 @@
+name: TARIQ Telefonie · Native App Testbuild
+on:
+  push:
+    branches: [main, 'feature/native-*']
+    paths: ['mobile/**', '.github/workflows/mobile.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-phone-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            os: ubuntu-latest
+          - platform: ios
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        if: matrix.platform == 'android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.7'
+          channel: stable
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Native Projekte vorbereiten
+        run: |
+          flutter create --project-name tariq_telefonie --org de.tariqitconsulting --platforms android,ios .
+          python3 -m pip install Pillow==11.3.0
+          python3 tool/prepare_native.py
+          flutter pub get
+          dart run flutter_launcher_icons
+      - name: Flutter testen
+        run: flutter test
+      - name: Android Test-APK erstellen
+        if: matrix.platform == 'android'
+        run: flutter build apk --release
+      - name: iOS nativ kompilieren
+        if: matrix.platform == 'ios'
+        run: |
+          flutter build ios --release --no-codesign
+          ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app TARIQ-Telefonie-iOS-unsigned.zip
+      - uses: actions/upload-artifact@v4
+        if: matrix.platform == 'android'
+        with:
+          name: TARIQ-Telefonie-Android-Test-APK
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+      - uses: actions/upload-artifact@v4
+        if: matrix.platform == 'ios'
+        with:
+          name: TARIQ-Telefonie-iOS-unsigned
+          path: mobile/TARIQ-Telefonie-iOS-unsigned.zip

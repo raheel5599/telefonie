@@ -276,7 +276,7 @@ function queryCallHistory(params,now=Date.now()){
 const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js','/phone.js':'phone.js','/phone-audio-worklet.js':'phone-audio-worklet.js'};
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png'};
 const respond=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(body))};
-const cookie=req=>/\btelefonie_session=([a-f0-9]{64})/.exec(req.headers.cookie||'')?.[1];
+const cookie=req=>{const bearer=/^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization||'')?.[1];if(bearer&&sessions.get(bearer)?.native===true)return bearer;return /\btelefonie_session=([a-f0-9]{64})/.exec(req.headers.cookie||'')?.[1]};
 async function supabaseRequest(endpoint,options={}){
  const r=await fetch(supabase+'/auth/v1'+endpoint,{...options,redirect:'error',signal:AbortSignal.timeout(12000),headers:{apikey:apiKey,'Content-Type':'application/json',...options.headers}});
  if(!r.ok)throw Error('Supabase '+r.status);
@@ -328,7 +328,7 @@ const webServer=http.createServer(async(req,res)=>{
   try{const data=fs.readFileSync(file);res.writeHead(200,{'Content-Type':'audio/wav','Content-Length':data.length,'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'});res.end(req.method==='HEAD'?'':data)}catch{res.writeHead(404).end()}return;
  }
  if(pathname==='/api/session'&&req.method==='GET'){const identity=await sessionIdentity(req);return respond(res,200,{authenticated:!!identity,...(identity||{}),email:identity?.role==='admin'?adminEmail:''})}
- if(pathname==='/api/login'&&req.method==='POST'){
+ if(['/api/login','/api/native/login'].includes(pathname)&&req.method==='POST'){
   if(!checkPost(req))return respond(res,403,{error:'Ungültige Anfrage'});
   const key=req.socket.remoteAddress||'client',now=Date.now(),v=attempts.get(key)||{until:0,count:0};
   if(now>v.until){v.count=0;v.until=now+60000}if(++v.count>8)return respond(res,429,{error:'Zu viele Anmeldeversuche'});attempts.set(key,v);
@@ -336,8 +336,8 @@ const webServer=http.createServer(async(req,res)=>{
   if(String(b.email||'').trim().toLowerCase()!==adminEmail){
    if(typeof b.password!=='string'||!b.password||b.password.length>512)return respond(res,401,{error:'Anmeldung fehlgeschlagen'});
    const user=await phoneAccounts.authenticate(b.email,b.password);if(!user)return respond(res,401,{error:'Anmeldung fehlgeschlagen'});
-   const sid=randomBytes(32).toString('hex');sessions.set(sid,{role:'phone',accountId:user.id,version:user.version,until:Date.now()+12*3600000});setSessionCookie(res,sid);
-   return respond(res,200,{ok:true,role:'phone'});
+   const sid=randomBytes(32).toString('hex');sessions.set(sid,{native:pathname==='/api/native/login',role:'phone',accountId:user.id,version:user.version,until:Date.now()+12*3600000});setSessionCookie(res,sid);
+   return respond(res,200,{ok:true,role:'phone',...(pathname==='/api/native/login'?{token:sid}:{})});
   }
   if(String(b.email||'').trim().toLowerCase()!==adminEmail||typeof b.password!=='string'||!b.password||b.password.length>512)return respond(res,401,{error:'Anmeldung fehlgeschlagen'});
   let t,u;
@@ -347,9 +347,9 @@ const webServer=http.createServer(async(req,res)=>{
   }catch{return respond(res,401,{error:'Anmeldung fehlgeschlagen'})}
   if(!approved(u)||!assurance(u,t.access_token)||!t.refresh_token)return respond(res,403,{error:'Kein bestätigter Administratorzugang'});
   const sid=randomBytes(32).toString('hex');
-  sessions.set(sid,{role:'admin',access:t.access_token,refresh:t.refresh_token,refreshAt:Date.now()+(Number(t.expires_in)||3600)*1000-60000,until:Date.now()+12*3600000});
+  sessions.set(sid,{native:pathname==='/api/native/login',role:'admin',access:t.access_token,refresh:t.refresh_token,refreshAt:Date.now()+(Number(t.expires_in)||3600)*1000-60000,until:Date.now()+12*3600000});
   res.setHeader('Set-Cookie','telefonie_session='+sid+'; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200');
-  return respond(res,200,{ok:true});
+  return respond(res,200,{ok:true,...(pathname==='/api/native/login'?{token:sid}:{})});
  }
  if(pathname==='/api/logout'&&req.method==='POST'){
   if(!checkPost(req))return respond(res,403,{error:'Ungültige Anfrage'});
