@@ -50,8 +50,11 @@ def update_config(text):
 
 
 def recover_rtp_directory(rtp,backup,text):
-    if os.access(rtp.parent,os.W_OK):
+    try:
         rtp.rename(backup/'rtp.host-directory')
+    except PermissionError:
+        pass
+    else:
         rtp.write_text(text);rtp.chmod(0o644)
         return
     # The old directory was created by Docker as root. Repair only this mount source.
