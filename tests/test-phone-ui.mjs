@@ -1,0 +1,15 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const source=fs.readFileSync('public/app.js','utf8').split("nav.forEach(b=>b.addEventListener")[0];
+const element={classList:{add(){},remove(){},toggle(){},contains:()=>true},dataset:{},addEventListener(){},querySelector:()=>null};
+const ctx=vm.createContext({document:{body:element,querySelector:()=>element,querySelectorAll:()=>[]},window:{addEventListener(){}},location:{hash:'#settings'},Date,Intl,setInterval:()=>0,api:async()=>({ready:true,online:false,device:'801',name:'<Office>',company:'+4960316843466'})});
+vm.runInContext(source,ctx);vm.runInContext("currentSession={role:'phone',device:'801',name:'Office',company:'+4960316843466'}",ctx);
+vm.runInContext(fs.readFileSync('public/phone.js','utf8'),ctx);await new Promise(r=>setImmediate(r));
+vm.runInContext('render()',ctx);
+assert(element.innerHTML.includes('Zugewiesene Rufnummer'));
+assert(!element.innerHTML.includes('Telefonzugang anlegen'));
+assert(!element.innerHTML.includes('Firmenbezeichnung'));
+assert(!element.innerHTML.includes('Absenderrufnummer<select'));
+assert(element.innerHTML.includes('&lt;Office&gt;'));
+assert(element.innerHTML.includes('Mikrofon & Ton testen'));
+assert.equal(ctx.document.title,'TARIQ Telefonie · phone');
+console.log('Phone-only role is forced to its assigned telephone even when requesting a settings URL.');

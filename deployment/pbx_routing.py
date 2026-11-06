@@ -15,7 +15,7 @@ from business_hours import all_profiles, compile_program, is_open, TZ
 from route_targets import normalize_target, dial_app, target_from_dial, validate_outbound
 
 LINES = ('+4960316868187', '+4960316843466', '+4960316871811')
-EXTENSIONS = ('100', '101', '102')
+EXTENSIONS = ('100', '101', '102') + tuple(str(i) for i in range(800,820))
 CONTEXTS = {
     LINES[0]: ('from-telekom',),
     LINES[1]: ('from-telekom', 'from-telekom-2'),
@@ -120,7 +120,7 @@ def rewrite_apps(text, apps, managed=''):
         if m:
             line = m[1].strip()
         key = (line, context)
-        if key in counts and re.match(r'\s*same\s*=>\s*n,(?:Dial\(PJSIP/(?:100|101|102),30\)|Dial\(Local/0[0-9]{6,11}@outbound-de/n,30\)|Gosub\(tariq-hours-[a-f0-9]{12},' + re.escape(line) + r',1\))\s*(;.*)?$', value.rstrip('\r\n')):
+        if key in counts and re.match(r'\s*same\s*=>\s*n,(?:Dial\(PJSIP/(?:100|101|102),30\)|Dial\(Local/0[0-9]{6,11}@outbound-de/n,30\)|Dial\(Local/8[01][0-9]@tariq-browser-incoming/n,30\)|Gosub\(tariq-hours-[a-f0-9]{12},' + re.escape(line) + r',1\))\s*(;.*)?$', value.rstrip('\r\n')):
             value = re.sub(r'(?<=n,)(?:Dial|Gosub)\([^)]*\)', lambda m: apps[line], value, count=1)
             counts[key] += 1
         result.append(value)

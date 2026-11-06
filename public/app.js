@@ -1,3 +1,4 @@
+let currentSession=null;
 let settingsState=null,settingsLoading=false,settingsError='',settingsExporting=false,settingsExportMessage='';
 const main=document.querySelector('#main'),sidebar=document.querySelector('#sidebar');
 const nav=[...document.querySelectorAll('[data-page]')];
@@ -58,10 +59,12 @@ function normalizeRouteTarget(raw,extensions,own){
  return value;
 }
 
-const targetLabel=target=>target?.startsWith('+')?'Extern: '+target:'Nebenstelle '+target;
+const routeExtensions=()=>['100','101','102',...Array.from({length:20},(_,i)=>String(800+i))];
+const phoneTargets=()=>[...lines,...((typeof window!=='undefined'&&window.browserDevices)||[{id:'800',name:'Administrator · Browser'}]).map(d=>({ext:d.id,label:'Browser · '+d.name}))];
+const targetLabel=target=>target?.startsWith('+')?'Extern: '+target:Number(target)>=800&&Number(target)<=819?'Browser-Telefon '+target:'Nebenstelle '+target;
 const choiceTarget=(type,extension,phone)=>{
  if(type==='extension')return extension;
- const target=normalizeRouteTarget(phone,lines.map(x=>x.ext),lines.map(x=>x.e164));
+ const target=normalizeRouteTarget(phone,routeExtensions(),lines.map(x=>x.e164));
  if(!target.startsWith('+'))throw Error('Bitte eine Handy- oder Festnetznummer eingeben.');
  return target;
 };
@@ -76,7 +79,7 @@ const forwardCards=()=>'<div class="forward-grid">'+lines.map(x=>{
  const active=activeRoute(x),draft=forwardDraft(x);
  const disabled=routeBusy||routingState?.pending||!routingState?.available;
  let selected;try{selected=choiceTarget(draft.type,draft.extension,draft.phone)}catch{selected=null}
- return '<section class="panel forward-card"><div class="panel-head"><div><div class="eyebrow">RUFZIEL</div><h2>'+esc(x.label)+'</h2><p class="forward-number">'+esc(x.e164)+'</p></div>'+pill(active?'Aktiv bestätigt':'Nicht geprüft',active?'good':'neutral')+'</div><form class="forward-form panel-pad" data-line="'+x.e164+'"><div class="forward-current"><span>Aktuelles Rufziel</span><strong>'+esc(active?targetLabel(active):'Noch nicht abrufbar')+'</strong></div><fieldset '+(disabled?'disabled':'')+'><div class="target-types"><label class="'+(draft.type==='extension'?'selected':'')+'"><input type="radio" name="targetType" value="extension" '+(draft.type==='extension'?'checked':'')+'> Nebenstelle</label><label class="'+(draft.type==='external'?'selected':'')+'"><input type="radio" name="targetType" value="external" '+(draft.type==='external'?'checked':'')+'> Externe Nummer</label></div>'+(draft.type==='extension'?'<label class="field">Ziel-Nebenstelle<select name="extension">'+lines.map(t=>'<option value="'+t.ext+'" '+(draft.extension===t.ext?'selected':'')+'>'+t.ext+' · '+esc(t.label)+'</option>').join('')+'</select></label>':'<label class="field">Handy- oder Festnetznummer<input type="tel" name="externalNumber" inputmode="tel" autocomplete="tel" maxlength="40" placeholder="z. B. 0170 1234567" value="'+esc(draft.phone)+'" required></label><p class="target-hint">Mit deutscher Vorwahl oder +49 eingeben.</p>')+'<button class="save-number" type="submit" '+(disabled||selected===active||(draft.type==='external'&&!draft.phone.trim())?'disabled':'')+'>Übernehmen</button></fieldset><p class="page-text">Gilt für neue eingehende Anrufe. Deine Öffnungszeiten bleiben aktiv.</p></form></section>';
+ return '<section class="panel forward-card"><div class="panel-head"><div><div class="eyebrow">RUFZIEL</div><h2>'+esc(x.label)+'</h2><p class="forward-number">'+esc(x.e164)+'</p></div>'+pill(active?'Aktiv bestätigt':'Nicht geprüft',active?'good':'neutral')+'</div><form class="forward-form panel-pad" data-line="'+x.e164+'"><div class="forward-current"><span>Aktuelles Rufziel</span><strong>'+esc(active?targetLabel(active):'Noch nicht abrufbar')+'</strong></div><fieldset '+(disabled?'disabled':'')+'><div class="target-types"><label class="'+(draft.type==='extension'?'selected':'')+'"><input type="radio" name="targetType" value="extension" '+(draft.type==='extension'?'checked':'')+'> Nebenstelle</label><label class="'+(draft.type==='external'?'selected':'')+'"><input type="radio" name="targetType" value="external" '+(draft.type==='external'?'checked':'')+'> Externe Nummer</label></div>'+(draft.type==='extension'?'<label class="field">Ziel-Telefon<select name="extension">'+phoneTargets().map(t=>'<option value="'+t.ext+'" '+(draft.extension===t.ext?'selected':'')+'>'+t.ext+' · '+esc(t.label)+'</option>').join('')+'</select></label>':'<label class="field">Handy- oder Festnetznummer<input type="tel" name="externalNumber" inputmode="tel" autocomplete="tel" maxlength="40" placeholder="z. B. 0170 1234567" value="'+esc(draft.phone)+'" required></label><p class="target-hint">Mit deutscher Vorwahl oder +49 eingeben.</p>')+'<button class="save-number" type="submit" '+(disabled||selected===active||(draft.type==='external'&&!draft.phone.trim())?'disabled':'')+'>Übernehmen</button></fieldset><p class="page-text">Gilt für neue eingehende Anrufe. Deine Öffnungszeiten bleiben aktiv.</p></form></section>';
 }).join('')+'</div>';
 const forwardView=()=>head('Weiterleitungen','Für jede Firma zwischen interner Nebenstelle und externer Rufnummer wählen.')+
  '<div class="forward-info"><span class="status-dot"></span><span>'+esc(routingState?.pending?'Änderung wird übernommen · dies dauert bis zu einer Minute.':routingState?.available?'Aktive Rufziele werden direkt in Asterisk geprüft.':routingState?.note||'Rufziele werden geladen …')+'</span></div>'+
@@ -187,16 +190,18 @@ function settingsView(){
  '<div class="settings-grid">'+panel('Telefonanlage verwalten','<div class="panel-pad settings-links"><a class="settings-link" href="#numbers"><span class="circle">☎</span><span><strong>SIP-Trunks & Rufnummern</strong><small>Drei Telekom-Rufnummern, Status und Firmenbezeichnungen</small></span><span aria-hidden="true">↗</span></a><a class="settings-link" href="#extensions"><span class="circle">♧</span><span><strong>Nebenstellen & Geräte</strong><small>Nebenstellen 100, 101 und 102 · aktueller Gerätestatus</small></span><span aria-hidden="true">↗</span></a><a class="settings-link" href="#forwards"><span class="circle">↪</span><span><strong>Weiterleitungen</strong><small>Interne Nebenstelle oder externe Rufnummer festlegen</small></span><span aria-hidden="true">↗</span></a><a class="settings-link" href="#hours"><span class="circle">◷</span><span><strong>Öffnungszeiten & Ansagen</strong><small>Wochenpläne und eigene Geschlossen-Ansagen verwalten</small></span><span aria-hidden="true">↗</span></a></div>')+
  panel('Zugang & Sicherheit','<div class="panel-pad"><dl class="settings-details"><div><dt>Angemeldet als</dt><dd>'+esc(data?.access?.email||'Wird geladen …')+'</dd></div><div><dt>Berechtigung</dt><dd>'+esc(data?.access?.role||'Wird geprüft …')+'</dd></div><div><dt>Sitzung gültig bis</dt><dd>'+esc(expiry)+' Uhr</dd></div><div><dt>Anmeldung</dt><dd>Bestätigter Administratorzugang</dd></div></dl><p class="page-text">Nur der freigegebene Administrator kann Einstellungen ändern. Mit „Abmelden“ beendest du deine aktuelle Sitzung.</p></div>')+'</div>'+
  '<div class="settings-grid">'+panel('Einstellungen sichern','<div class="panel-pad"><p class="page-text">Firmenbezeichnungen, Rufziele, Öffnungszeiten und gespeicherte eigene Ansagetexte als JSON herunterladen.</p><button type="button" class="save-number" data-settings-export '+(settingsExporting?'disabled':'')+'>'+(settingsExporting?'Export wird erstellt …':'Einstellungen herunterladen')+'</button><p class="forward-message" role="status" aria-live="polite">'+esc(settingsExportMessage)+'</p><p class="page-text">Der Export enthält keine Passwörter, Audiodateien oder Anrufdaten und ersetzt kein vollständiges Anlagen-Backup. Ein automatischer Import ist noch nicht eingerichtet.</p></div>')+
- panel('Weitere Funktionen','<div class="panel-pad"><div class="settings-capability"><div><h3>Anrufaufzeichnung</h3><p>Über dieses Portal noch nicht eingerichtet.</p></div>'+pill('Nicht eingerichtet')+'</div><div class="settings-capability"><div><h3>Browser-Telefonie · WebRTC</h3><p>Telefonieren im Browser ist noch nicht eingerichtet. SIP-Endgeräte werden separat angebunden.</p></div>'+pill('In Vorbereitung')+'</div></div>')+'</div>';
+ panel('Weitere Funktionen','<div class="panel-pad"><div class="settings-capability"><div><h3>Anrufaufzeichnung</h3><p>Über dieses Portal noch nicht eingerichtet.</p></div>'+pill('Nicht eingerichtet')+'</div><div class="settings-capability"><div><h3>Browser-Telefonie</h3><p>Unter Telefon online gehen, anrufen und Anrufe annehmen. Telefonzugänge werden vom Administrator zugewiesen.</p><a href="#phone">Telefon öffnen ↗</a></div>'+pill('Verfügbar','good')+'</div></div>')+'</div>';
 }
 
 const screens={
+ phone:()=>typeof window!=='undefined'&&window.PhoneUI?window.PhoneUI.render():head('Telefon','Telefon wird geladen …'),
+ 'phone-users':()=>typeof window!=='undefined'&&window.PhoneUI?window.PhoneUI.renderUsers():head('Telefonzugänge','Zugänge werden geladen …'),
  overview:()=>head('Telefonie im Überblick','Drei Telekom-Rufnummern, Nebenstellen und Systemverbindungen zentral verwalten.')+notice()+
- '<div class="stats">'+stat('Telekom-Rufnummern',liveReady()&&!liveStatus.errors?.includes('registrations')?liveStatus.registrations.filter(r=>r.status==='Registered').length+' / 3':'3',liveReady()&&!liveStatus.errors?.includes('registrations')?'Aktuell registriert':'Eingerichtet · Live-Status unbekannt')+stat('Nebenstellen',liveReady()&&!liveStatus.errors?.includes('extensions')?liveStatus.extensions.filter(e=>e.online===true).length+' / 3':'3',liveReady()&&!liveStatus.errors?.includes('extensions')?'Aktuell erreichbar':'100 · 101 · 102 eingerichtet')+stat('Laufende Gespräche',liveStatus?.activeCalls??'—',liveStatus?.activeChannels==null?'Live-Abfrage nicht verfügbar':esc(liveStatus.activeChannels)+' aktive Kanäle · einzelne Verbindungen')+stat('Asterisk AMI',esc(monitor()),'Verbindung zum Monitoring')+'</div>'+
+ '<div class="stats">'+stat('Telekom-Rufnummern',liveReady()&&!liveStatus.errors?.includes('registrations')?liveStatus.registrations.filter(r=>r.status==='Registered').length+' / 3':'3',liveReady()&&!liveStatus.errors?.includes('registrations')?'Aktuell registriert':'Eingerichtet · Live-Status unbekannt')+stat('Nebenstellen',liveReady()&&!liveStatus.errors?.includes('extensions')?liveStatus.extensions.filter(e=>e.online===true).length+' / '+liveStatus.extensions.filter(e=>e.configured).length:'3',liveReady()&&!liveStatus.errors?.includes('extensions')?'Aktuell erreichbar':'100 · 101 · 102 eingerichtet')+stat('Laufende Gespräche',liveStatus?.activeCalls??'—',liveStatus?.activeChannels==null?'Live-Abfrage nicht verfügbar':esc(liveStatus.activeChannels)+' aktive Kanäle · einzelne Verbindungen')+stat('Asterisk AMI',esc(monitor()),'Verbindung zum Monitoring')+'</div>'+
  '<div class="grid">'+panel('Rufnummern & Zuordnung',lineRows(),'Telekom · Friedberg')+
  panel('Systemverbindungen',row('◉','Asterisk AMI',monitor(),pill(pbxStatus?.monitoring==='connected'?'Online':'Nicht bestätigt',pbxStatus?.monitoring==='connected'?'good':'neutral'))+
  row('⇄','WireGuard · Friedberg',wireguardState().detail,pill(wireguardState().label,wireguardState().good?'good':'neutral'))+
- row('◈','Telefonie-Web-App','Browser-Telefonie in Vorbereitung',pill('Geplant')),'Statusübersicht')+'</div>',
+ row('◈','Browser-Telefon','Anrufe direkt im Browser · unter Telefon öffnen',pill(typeof window!=='undefined'&&window.PhoneUI?.state()?.online?'Online':'Bereit',typeof window!=='undefined'&&window.PhoneUI?.state()?.online?'good':'neutral')),'Statusübersicht')+'</div>',
  numbers:()=>head('Rufnummern','Deine Telekom-Rufnummern, Firmenbezeichnungen und Rufziele zentral verwalten.')+
  panel('Telekom · Rufnummern',lineRows(),'3 Registrierungen')+
  panel('Rufnummernverwaltung','<div class="panel-pad"><p class="page-text">Bezeichnungen bearbeiten und Rufziele, Öffnungszeiten und Ansagen für jede Firma verwalten.</p><p class="forward-message" role="status" aria-live="polite">'+esc(numberMessage)+'</p><div class="number-grid">'+lines.map(x=>{
@@ -212,29 +217,48 @@ const screens={
  hours:hoursView,
  settings:settingsView
 };
-function render(){const id=location.hash.slice(1),page=screens[id]?id:'overview';main.innerHTML=screens[page]();nav.forEach(b=>b.classList.toggle('active',b.dataset.page===page));sidebar.classList.remove('open');document.title='TARIQ Telefonie · '+page;if(page==='calls'&&!callCache&&!callsLoading)loadCallHistory();}
+function render(){const id=location.hash.slice(1),page=currentSession?.role==='phone'?'phone':screens[id]?id:'overview';main.innerHTML=screens[page]();nav.forEach(b=>b.classList.toggle('active',b.dataset.page===page));sidebar.classList.remove('open');document.title='TARIQ Telefonie · '+page;if(page==='calls'&&!callCache&&!callsLoading)loadCallHistory();}
 nav.forEach(b=>b.addEventListener('click',()=>{location.hash=b.dataset.page;render()}));
 document.querySelector('#menu').addEventListener('click',()=>sidebar.classList.toggle('open'));
 window.addEventListener('hashchange',()=>{if(document.body.classList.contains('authenticated'))render()});
 async function api(url,options={}){const response=await fetch(url,{credentials:'same-origin',cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});const result=await response.json();if(!response.ok)throw Error(result.error||'Anfrage fehlgeschlagen');return result;}
 let statusLoading=false;
 async function loadStatus(){
+ if(currentSession?.role==='phone')return;
  if(statusLoading)return;statusLoading=true;
  const button=document.querySelector('#refresh-status');if(button)button.disabled=true;
  try{const [pbx,live]=await Promise.allSettled([api('/api/pbx/status'),api('/api/pbx/live')]);pbxStatus=pbx.status==='fulfilled'?pbx.value:{monitoring:'unavailable'};liveStatus=live.status==='fulfilled'?live.value:null;
- if(!document.querySelector('#routing-form')&&!document.querySelector('.forward-form')&&!document.querySelector('.hours-form')&&!document.querySelector('.call-controls')&&(!document.querySelector('.number-profile-form')||!document.activeElement?.closest('.number-profile-form'))&&document.body.classList.contains('authenticated'))render();
+ if(!document.querySelector('#routing-form')&&!document.querySelector('.forward-form')&&!document.querySelector('.hours-form')&&!document.querySelector('.call-controls')&&!document.querySelector('#phone-user-form')&&!document.querySelector('#phone-dial-form')&&(!document.querySelector('.number-profile-form')||!document.activeElement?.closest('.number-profile-form'))&&document.body.classList.contains('authenticated'))render();
  }finally{statusLoading=false;if(button?.isConnected)button.disabled=false}
 }
 main.addEventListener('click',e=>{if(e.target.closest('#refresh-status'))loadStatus()});
-async function initialize(){try{const r=await api('/api/session');if(r.authenticated){document.body.classList.add('authenticated');render();loadStatus();loadRoutes();loadNumberProfiles();loadSettings()}else{document.querySelector('[name=email]').value=r.email||''}}catch{document.querySelector('#login-error').textContent='Anmeldeserver nicht erreichbar.'}}
-document.querySelector('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,button=form.querySelector('button'),error=document.querySelector('#login-error');button.disabled=true;error.textContent='';try{await api('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});form.elements.password.value='';document.body.classList.add('authenticated');render();loadStatus();loadRoutes();loadNumberProfiles();loadSettings()}catch(err){error.textContent=err.message}finally{button.disabled=false}});
-document.querySelector('#logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}catch{}document.body.classList.remove('authenticated');pbxStatus=null;liveStatus=null;settingsState=null;settingsError='';callCache=null;callError='';++callRequestVersion;callsLoading=false;callFilters={filter:'all',company:'all',days:'30',q:'',page:1};document.querySelector('[name=password]').value='';});
+function applySession(session){
+ currentSession=session;document.body.dataset.role=session.role;document.body.classList.add('authenticated');
+ document.querySelector('footer').textContent=session.role==='phone'?'© TARIQ Telefonie · Telefon':'© TARIQ Telefonie · Verwaltung · Asterisk / Telekom';
+ if(session.role==='phone')location.hash='phone';
+ render();
+ if(session.role==='admin'){loadStatus();loadRoutes();loadNumberProfiles();loadSettings()}
+ if(typeof window!=='undefined'&&window.PhoneUI)void window.PhoneUI.initialize();
+}
+async function initialize(){try{const session=await api('/api/session');if(session.authenticated)applySession(session)}catch{document.querySelector('#login-error').textContent='Anmeldeserver nicht erreichbar.'}}
+document.querySelector('#login-form').addEventListener('submit',async e=>{
+ e.preventDefault();const form=e.currentTarget,button=form.querySelector('button'),error=document.querySelector('#login-error');button.disabled=true;error.textContent='';
+ try{await api('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});form.elements.password.value='';applySession(await api('/api/session'))}catch(err){error.textContent=err.message}finally{button.disabled=false}
+});
+document.querySelector('#logout').addEventListener('click',async()=>{
+ if(typeof window!=='undefined'&&window.PhoneUI)await window.PhoneUI.logout();
+ try{await api('/api/logout',{method:'POST',body:'{}'})}catch{}
+ currentSession=null;document.body.classList.remove('authenticated');delete document.body.dataset.role;
+ pbxStatus=null;liveStatus=null;settingsState=null;settingsError='';callCache=null;callError='';++callRequestVersion;callsLoading=false;
+ callFilters={filter:'all',company:'all',days:'30',q:'',page:1};document.querySelector('[name=password]').value='';
+});
 initialize();
 
 setInterval(()=>{if(document.body.classList.contains('authenticated'))loadStatus()},30000);
 
 let routesLoading=false;
 async function loadRoutes(){
+ if(currentSession?.role==='phone')return;
  if(routesLoading)return;routesLoading=true;
  try{
   routingState=await api('/api/pbx/hours');
@@ -389,6 +413,7 @@ function applyNumberProfiles(numbers){
  for(const row of numbers||[]){const line=lines.find(x=>x.e164===row.e164);if(line)line.label=row.label}
 }
 async function loadNumberProfiles(){
+ if(currentSession?.role==='phone')return;
  try{const data=await api('/api/numbers');applyNumberProfiles(data.numbers);numbersReady=true;numberMessage='';}
  catch{numbersReady=false;numberMessage='Bezeichnungen konnten nicht geladen werden. Bitte die Seite neu laden.'}
  if(location.hash==='#numbers'&&!document.activeElement?.closest('.number-profile-form'))render();
@@ -403,6 +428,7 @@ main.addEventListener('submit',async e=>{
 });
 
 async function loadSettings(){
+ if(currentSession?.role==='phone')return;
  if(settingsLoading)return;settingsLoading=true;
  try{const data=await api('/api/settings');if(document.body.classList.contains('authenticated')){settingsState=data;settingsError=''}}
  catch{settingsState=null;settingsError='Systemstatus konnte nicht geladen werden. Bitte erneut versuchen.'}

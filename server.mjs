@@ -1,3 +1,5 @@
+import {createPhoneAccounts,PHONE_LINES,PHONE_DEVICES} from './phone-accounts.mjs';
+import {createPhoneService} from './phone-service.mjs';
 import http from 'node:http';
 import {createSpeechService} from './speech.mjs';
 import net from 'node:net';
@@ -17,6 +19,8 @@ const sessions=new Map(), attempts=new Map();
 const storeDir=process.env.DATA_DIR||path.join(root,'data');
 fs.mkdirSync(storeDir,{recursive:true,mode:0o700});
 const speech=createSpeechService(storeDir);
+const phoneAccounts=createPhoneAccounts(storeDir);
+const phoneService=createPhoneService({root,accounts:phoneAccounts,isAlive:(sid,identity)=>{const entry=sessions.get(sid);return !!entry&&entry.until>Date.now()&&(identity.role==='admin'?entry.role!=='phone':!!phoneAccounts.identity(entry))}});
 const numbersPath=path.join(storeDir,'numbers.json');
 function readStoredNumbers(){try{const data=JSON.parse(fs.readFileSync(numbersPath,'utf8'));return Array.isArray(data)?data:[]}catch(e){if(e.code==='ENOENT')return [];throw e}}
 const numberDefaults=[
@@ -46,7 +50,7 @@ function writeNumbers(numbers){const temp=numbersPath+'.'+process.pid+'.tmp';fs.
 
 const plansPath=path.join(storeDir,'routing-plans.json');
 const allowedLines=['+4960316868187','+4960316843466','+4960316871811'];
-const allowedExtensions=['100','101','102'];
+const allowedExtensions=['100','101','102',...PHONE_DEVICES];
 function readPlans(){try{const v=JSON.parse(fs.readFileSync(plansPath,'utf8'));return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch(e){if(e.code==='ENOENT')return {};throw e}}
 function validatePlan(raw){
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('Ungültiger Plan');
@@ -118,7 +122,7 @@ function readLivePbx(){
  const errors=Array.isArray(data.errors)?data.errors:[];
  return {monitoring:errors.length?'partial':'connected',checkedAt:data.checkedAt,
   registrations:Array.isArray(data.registrations)?data.registrations:[],
-  extensions:Array.isArray(data.extensions)?data.extensions:[],
+  extensions:[...(Array.isArray(data.extensions)?data.extensions:[]),...phoneService.devices()],
   activeChannels:Number.isInteger(data.activeChannels)&&data.activeChannels>=0?data.activeChannels:null,
   activeCalls:Number.isInteger(data.activeCalls)&&data.activeCalls>=0?data.activeCalls:null,
   errors};
@@ -262,7 +266,7 @@ function queryCallHistory(params,now=Date.now()){
  return {source,stats,filter,company,days,q,page,pageSize,pages,total,calls:selected.slice((page-1)*pageSize,page*pageSize)};
 }
 
-const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js'};
+const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js','/phone.js':'phone.js','/phone-audio-worklet.js':'phone-audio-worklet.js'};
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png'};
 const respond=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(body))};
 const cookie=req=>/\btelefonie_session=([a-f0-9]{64})/.exec(req.headers.cookie||'')?.[1];
@@ -278,7 +282,7 @@ function assurance(u,token){
 }
 async function authenticated(req){
  const sid=cookie(req),entry=sessions.get(sid);
- if(!entry)return false;
+ if(!entry||entry.role==='phone')return false;
  if(entry.until<Date.now()){sessions.delete(sid);return false}
  try{
   if(entry.refreshAt<Date.now()){
@@ -290,21 +294,39 @@ async function authenticated(req){
   return true;
  }catch{return false}
 }
+async function sessionIdentity(req){
+ const sid=cookie(req),entry=sessions.get(sid);
+ if(!entry||entry.until<Date.now())return null;
+ if(entry.role==='phone'){
+  const identity=phoneAccounts.identity(entry);
+  if(!identity){sessions.delete(sid);phoneService.closeSession(sid)}
+  return identity?{...identity,companyLabel:readNumbers().find(n=>n.e164===identity.company)?.label||identity.company}:null;
+ }
+ return await authenticated(req)?{role:'admin',name:'Administrator',device:'800',company:PHONE_LINES[0]}:null;
+}
+function setSessionCookie(res,sid){res.setHeader('Set-Cookie','telefonie_session='+sid+'; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200')}
+
 async function readBody(req){
  let total=0,parts=[];
  for await(const part of req){total+=part.length;if(total>4096)throw Error('Eingabe zu lang');parts.push(part)}
  return JSON.parse(Buffer.concat(parts).toString()||'{}');
 }
 function checkPost(req){const origin=process.env.APP_ORIGIN||'https://telefonie.tariq-itconsulting.de';return req.headers.origin===origin&&String(req.headers['content-type']||'').startsWith('application/json')}
-http.createServer(async(req,res)=>{
+const webServer=http.createServer(async(req,res)=>{
  const pathname=new URL(req.url||'/', 'http://localhost').pathname;
  try{
- if(pathname==='/api/session'&&req.method==='GET')return respond(res,200,{authenticated:await authenticated(req),email:adminEmail});
+ if(pathname==='/api/session'&&req.method==='GET'){const identity=await sessionIdentity(req);return respond(res,200,{authenticated:!!identity,...(identity||{}),email:identity?.role==='admin'?adminEmail:''})}
  if(pathname==='/api/login'&&req.method==='POST'){
   if(!checkPost(req))return respond(res,403,{error:'Ungültige Anfrage'});
   const key=req.socket.remoteAddress||'client',now=Date.now(),v=attempts.get(key)||{until:0,count:0};
   if(now>v.until){v.count=0;v.until=now+60000}if(++v.count>8)return respond(res,429,{error:'Zu viele Anmeldeversuche'});attempts.set(key,v);
   const b=await readBody(req);
+  if(String(b.email||'').trim().toLowerCase()!==adminEmail){
+   if(typeof b.password!=='string'||!b.password||b.password.length>512)return respond(res,401,{error:'Anmeldung fehlgeschlagen'});
+   const user=await phoneAccounts.authenticate(b.email,b.password);if(!user)return respond(res,401,{error:'Anmeldung fehlgeschlagen'});
+   const sid=randomBytes(32).toString('hex');sessions.set(sid,{role:'phone',accountId:user.id,version:user.version,until:Date.now()+12*3600000});setSessionCookie(res,sid);
+   return respond(res,200,{ok:true,role:'phone'});
+  }
   if(String(b.email||'').trim().toLowerCase()!==adminEmail||typeof b.password!=='string'||!b.password||b.password.length>512)return respond(res,401,{error:'Anmeldung fehlgeschlagen'});
   let t,u;
   try{
@@ -313,19 +335,48 @@ http.createServer(async(req,res)=>{
   }catch{return respond(res,401,{error:'Anmeldung fehlgeschlagen'})}
   if(!approved(u)||!assurance(u,t.access_token)||!t.refresh_token)return respond(res,403,{error:'Kein bestätigter Administratorzugang'});
   const sid=randomBytes(32).toString('hex');
-  sessions.set(sid,{access:t.access_token,refresh:t.refresh_token,refreshAt:Date.now()+(Number(t.expires_in)||3600)*1000-60000,until:Date.now()+12*3600000});
+  sessions.set(sid,{role:'admin',access:t.access_token,refresh:t.refresh_token,refreshAt:Date.now()+(Number(t.expires_in)||3600)*1000-60000,until:Date.now()+12*3600000});
   res.setHeader('Set-Cookie','telefonie_session='+sid+'; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200');
   return respond(res,200,{ok:true});
  }
  if(pathname==='/api/logout'&&req.method==='POST'){
   if(!checkPost(req))return respond(res,403,{error:'Ungültige Anfrage'});
-  sessions.delete(cookie(req));
+  phoneService.closeSession(cookie(req));sessions.delete(cookie(req));
   res.setHeader('Set-Cookie','telefonie_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
   return respond(res,200,{ok:true});
  }
 
 
 
+
+ if(pathname==='/api/phone/users'){
+  if(!await authenticated(req))return respond(res,401,{error:'Administratorzugang erforderlich'});
+  if(req.method==='GET')return respond(res,200,{users:phoneAccounts.list(),devices:phoneService.devices()});
+  if(req.method!=='POST')return respond(res,405,{error:'Methode nicht erlaubt'});
+  if(!checkPost(req))return respond(res,403,{error:'Ungültiger Ursprung'});
+  try{const input=await readBody(req),result=input.action==='create'?await phoneAccounts.create(input):await phoneAccounts.change(input);if(input.action!=='create')phoneService.revoke(input.id);return respond(res,200,result)}catch(e){return respond(res,400,{error:e.message})}
+ }
+ if(pathname.startsWith('/api/phone/')){
+  const identity=await sessionIdentity(req);if(!identity)return respond(res,401,{error:'Bitte erneut anmelden'});
+  const sid=cookie(req);
+  if(pathname==='/api/phone/status'&&req.method==='GET')return respond(res,200,phoneService.state(identity));
+  if(pathname==='/api/phone/events'&&req.method==='GET'){
+   try{phoneService.events(identity,sid,new URL(req.url,'http://localhost').searchParams.get('token'),res)}catch(e){respond(res,409,{error:e.message})}return;
+  }
+  if(req.method!=='POST')return respond(res,405,{error:'Methode nicht erlaubt'});
+  if(!checkPost(req))return respond(res,403,{error:'Ungültiger Ursprung'});
+  try{
+   const input=await readBody(req);let result={ok:true};
+   if(pathname==='/api/phone/connect')result=phoneService.connect(identity,sid);
+   else if(pathname==='/api/phone/offline')phoneService.closeSession(sid);
+   else if(pathname==='/api/phone/call')result=await phoneService.call(identity,sid,input);
+   else if(pathname==='/api/phone/answer')result=await phoneService.answer(identity,sid,input.id);
+   else if(pathname==='/api/phone/hangup')await phoneService.hangup(identity,input.id);
+   else if(pathname==='/api/phone/dtmf')await phoneService.dtmf(identity,input.id,input.digit);
+   else return respond(res,404,{error:'Nicht gefunden'});
+   return respond(res,200,result);
+  }catch(e){return respond(res,409,{error:e.message})}
+ }
 
  if(pathname==='/api/settings'&&req.method==='GET'){
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
@@ -432,10 +483,17 @@ http.createServer(async(req,res)=>{
  const file=pathname==='/logo.png'?logo:path.join(pub,files[pathname]||'__404__');
  fs.readFile(file,(err,buf)=>{
   if(err){res.writeHead(404).end('Not found');return}
-  res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; media-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"});
+  res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self' wss://telefonie.tariq-itconsulting.de; worker-src 'self'; media-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"});
   res.end(req.method==='HEAD'?'':buf);
  });
  }catch{respond(res,400,{error:'Anfrage konnte nicht verarbeitet werden'})}
-}).listen(Number(process.env.PORT)||3095,'0.0.0.0');
+});
+webServer.on('upgrade',async(req,socket,head)=>{
+ try{const url=new URL(req.url,'http://localhost');if(url.pathname!=='/api/phone/media'||req.headers.origin!==(process.env.APP_ORIGIN||'https://telefonie.tariq-itconsulting.de')){socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
+ const identity=await sessionIdentity(req);if(!identity){socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n');return}
+ await phoneService.upgrade(req,socket,head,identity,cookie(req),url.searchParams.get('call'));
+ }catch{socket.destroy()}
+});
+webServer.listen(Number(process.env.PORT)||3095,'0.0.0.0');
 
 

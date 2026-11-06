@@ -13,6 +13,10 @@ jobs:
         run: |
           node --check speech.mjs
           node --check server.mjs
+          node --check phone-accounts.mjs
+          node --check phone-service.mjs
+          node --check public/phone.js
+          node --check public/phone-audio-worklet.js
           node --check public/app.js
           python3 -m py_compile deployment/collect-pbx-status.py deployment/pbx_routing.py deployment/business_hours.py deployment/route_targets.py deployment/call_history.py deployment/setup-cdr.py deployment/build-announcements.py
           python3 -m unittest discover -s tests -p "test_*.py"
@@ -23,12 +27,17 @@ jobs:
           node tests/test-number-profiles.mjs
           node tests/test-settings.mjs
           node tests/test-target-availability.mjs
+          node tests/test-phone-accounts.mjs
+          node tests/test-phone-authorization.mjs
+          node tests/test-phone-service.mjs
+          node tests/test-phone-ui.mjs
 
       - name: Ansagenformat prüfen
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq espeak-ng sox
           python3 deployment/build-announcements.py
+          python3 deployment/build-browser-announcement.py
 
       - name: Eigene Sprachansagen im Web-Image prüfen
         run: |

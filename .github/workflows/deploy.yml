@@ -7,6 +7,7 @@ on:
       - 'public/**'
       - 'server.mjs'
       - 'speech.mjs'
+      - 'phone-*.mjs'
       - '.dockerignore'
       - 'compose.web.yml'
       - '*.png'
@@ -35,6 +36,10 @@ jobs:
         run: |
           node --check speech.mjs
           node --check server.mjs
+          node --check phone-accounts.mjs
+          node --check phone-service.mjs
+          node --check public/phone.js
+          node --check public/phone-audio-worklet.js
           node --check public/app.js
           python3 -m py_compile deployment/collect-pbx-status.py deployment/pbx_routing.py deployment/business_hours.py deployment/route_targets.py deployment/call_history.py deployment/setup-cdr.py deployment/build-announcements.py
           node tests/test-routing-ui.mjs
@@ -44,6 +49,10 @@ jobs:
           node tests/test-number-profiles.mjs
           node tests/test-settings.mjs
           node tests/test-target-availability.mjs
+          node tests/test-phone-accounts.mjs
+          node tests/test-phone-authorization.mjs
+          node tests/test-phone-service.mjs
+          node tests/test-phone-ui.mjs
           python3 -m unittest discover -s tests -p "test_*.py"
 
 
@@ -52,6 +61,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq espeak-ng sox
           python3 deployment/build-announcements.py
+          python3 deployment/build-browser-announcement.py
 
       - name: SSH-Zugang vorbereiten
         env:
@@ -82,6 +92,7 @@ jobs:
             set -eu
             cd /home/fpadmin/apps/telefonie
             python3 deployment/setup-caller-id.py
+            python3 deployment/setup-webphone.py
             python3 deployment/setup-cdr.py
             docker compose -p tariq-telefonie -f compose.web.yml config -q
             docker compose -p tariq-telefonie -f compose.web.yml build --pull telefonie-web
@@ -106,6 +117,7 @@ jobs:
               docker exec -i -u asterisk -w / tariq-telefonie-asterisk tee "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav.tmp" < "public/audio/tariq-closed-$i.wav" > /dev/null
               docker exec -u asterisk -w / tariq-telefonie-asterisk mv "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav.tmp" "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav"
             done
+            docker exec -w /app tariq-telefonie-telefonie-web-1 node deployment/check-webphone.mjs
             python3 deployment/collect-pbx-status.py --install-cron
 
           '

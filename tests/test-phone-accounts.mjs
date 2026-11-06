@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
+import {createPhoneAccounts,PHONE_LINES} from '../phone-accounts.mjs';
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'tariq-accounts-'));
+try{
+ const accounts=createPhoneAccounts(dir),created=await accounts.create({username:'office',name:'Office',company:PHONE_LINES[1]});
+ assert.equal(created.user.device,'801');assert(created.password.length>=20);
+ assert(!JSON.stringify(accounts.list()).includes('hash'));assert(!JSON.stringify(accounts.list()).includes('salt'));
+ assert(!fs.readFileSync(path.join(dir,'phone-users.json'),'utf8').includes(created.password));
+ assert.equal(await accounts.authenticate('office','wrong'),null);
+ const user=await accounts.authenticate('OFFICE',created.password);assert.equal(user.id,created.user.id);
+ const session={accountId:user.id,version:user.version};assert.equal(accounts.identity(session).role,'phone');
+ await accounts.change({id:user.id,action:'disable'});assert.equal(accounts.identity(session),null);assert.equal(await accounts.authenticate('office',created.password),null);
+ await accounts.change({id:user.id,action:'enable'});const reset=await accounts.change({id:user.id,action:'reset'});
+ assert.equal(await accounts.authenticate('office',created.password),null);assert(await accounts.authenticate('office',reset.password));
+ await assert.rejects(accounts.create({username:'office',name:'Again',company:PHONE_LINES[0]}));
+ await assert.rejects(accounts.create({username:'../admin',name:'Wrong',company:PHONE_LINES[0]}));
+ await assert.rejects(accounts.create({username:'other',name:'Wrong',company:'+491701234567'}));
+ const fresh=await accounts.authenticate('office',reset.password);
+ await accounts.change({id:fresh.id,action:'assign',company:PHONE_LINES[2]});assert.equal(accounts.identity({accountId:fresh.id,version:fresh.version}),null);assert.equal((await accounts.authenticate('office',reset.password)).company,PHONE_LINES[2]);
+ assert.equal(fs.statSync(path.join(dir,'phone-users.json')).mode&0o777,0o600);
+ console.log('Phone accounts: hashes, isolated identities, assignment validation and immediate revocation passed.');
+}finally{fs.rmSync(dir,{recursive:true,force:true})}

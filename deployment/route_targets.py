@@ -1,7 +1,8 @@
 """Validated internal or ordinary German public telephone destinations."""
 import re
 
-EXTENSIONS = ('100', '101', '102')
+BROWSER_EXTENSIONS = tuple(str(i) for i in range(800,820))
+EXTENSIONS = ('100', '101', '102') + BROWSER_EXTENSIONS
 OWN_LINES = ('+4960316868187', '+4960316843466', '+4960316871811')
 
 def normalize_target(raw):
@@ -27,12 +28,17 @@ def normalize_target(raw):
 
 def dial_app(raw):
     target = normalize_target(raw)
+    if target in BROWSER_EXTENSIONS:
+        return 'Dial(Local/' + target + '@tariq-browser-incoming/n,30)'
     if target in EXTENSIONS:
         return 'Dial(PJSIP/' + target + ',30)'
     national = '0' + target[3:]
     return 'Dial(Local/' + national + '@outbound-de/n,30)'
 
 def target_from_dial(app):
+    browser = re.fullmatch(r'Dial\(Local/(8[01][0-9])@tariq-browser-incoming/n,30\)',app)
+    if browser:
+        return browser[1]
     match = re.fullmatch(r'Dial\(PJSIP/(100|101|102),30\)', app)
     if match:
         return match[1]
