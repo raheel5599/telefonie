@@ -72,6 +72,7 @@ def setup():
 
 
 
+HOST=pathlib.Path('/home/fpadmin/apps/telefonie/asterisk/pjsip.conf')
 try:
  original=HOST.read_text()
  active=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'cat','/etc/asterisk/pjsip.conf'])
