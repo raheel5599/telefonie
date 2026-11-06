@@ -1,6 +1,7 @@
 """Accept provider caller identity on the existing Telekom endpoint only."""
 import datetime
 import json
+import os
 import time
 import pathlib
 import re
@@ -48,6 +49,30 @@ def update_config(text):
     return ''.join(sections)
 
 
+def recover_rtp_directory(rtp,backup,text):
+    if os.access(rtp.parent,os.W_OK):
+        rtp.rename(backup/'rtp.host-directory')
+        rtp.write_text(text);rtp.chmod(0o644)
+        return
+    # The old directory was created by Docker as root. Repair only this mount source.
+    candidate=backup/'rtp.recovered.conf'
+    candidate.write_text(text);candidate.chmod(0o644)
+    code="""const fs=require('fs');
+ const source='/repair/rtp.conf',old='/backup/rtp.host-directory',next='/backup/rtp.recovered.conf';
+ if(!fs.lstatSync(source).isDirectory()||fs.readdirSync(source).length||!fs.lstatSync(next).isFile())throw Error('Unexpected RTP source');
+ fs.renameSync(source,old);
+ try{fs.renameSync(next,source)}catch(error){fs.renameSync(old,source);throw error}
+ """
+    run(['docker','run','--rm','--pull=never','--network','none','--read-only',
+         '--user','0','--cap-drop=ALL','--cap-add=DAC_OVERRIDE',
+         '--security-opt','no-new-privileges:true','--memory','64m','--pids-limit','32',
+         '--mount','type=bind,src='+str(rtp.parent)+',dst=/repair',
+         '--mount','type=bind,src='+str(backup)+',dst=/backup',
+         'node:22-alpine','node','-e',code])
+    if not rtp.is_file() or rtp.read_text()!=text:
+        raise ValueError('RTP-Dateiquelle konnte nicht wiederhergestellt werden.')
+
+
 def setup():
     if enabled(cli('pjsip show endpoint telekom')):
         print('Anruferkennung: Provider-ID bereits aktiviert.')
@@ -89,7 +114,7 @@ def setup():
     restarted=False
     try:
         # Repair a stale, empty file-mount source using the running PBX configuration.
-        if rtp.is_dir():rtp.rename(backup/'rtp.host-directory')
+        if rtp.is_dir():recover_rtp_directory(rtp,backup,active_rtp)
         if not rtp.exists() or rtp.read_text()!=active_rtp:
             rtp.write_text(active_rtp);rtp.chmod(0o644)
         HOST.write_text(updated)
