@@ -20,22 +20,21 @@ def pbx(*args,**kwargs):
 def cli(command):return pbx('asterisk','-rx',command)
 
 def set_section(text,name,values):
-    lines=text.splitlines(keepends=True);result=[];inside=False;found=False;seen=set()
-    def missing():return [k+'='+v+'\n' for k,v in values.items() if k not in seen]
-    for line in lines:
+    result=[];inside=False;found=False;comment_depth=0
+    for line in text.splitlines(keepends=True):
+        if comment_depth or ';--' in line:
+            comment_depth+=line.count(';--')-line.count('--;')
+            result.append(line);continue
         section=re.match(r'^[ \t]*\[([^\]]+)\]',line)
         if section:
-            if inside:result.extend(missing())
             inside=section[1].lower()==name
             if inside:
                 if found:raise ValueError('Mehrdeutige Konfigurationssektion.')
-                found=True
+                found=True;result.append(line.rstrip('\r\n')+'\n')
+                result.extend(k+'='+v+'\n' for k,v in values.items());continue
         option=re.match(r'^[ \t]*([a-z_]+)[ \t]*=',line,re.I)
-        if inside and option and option[1].lower() in values:
-            key=option[1].lower()
-            if key not in seen:result.append(key+'='+values[key]+'\n');seen.add(key)
-        else:result.append(line)
-    if inside:result.extend(missing())
+        if inside and option and option[1].lower() in values:continue
+        result.append(line)
     if not found:result.append('\n['+name+']\n'+''.join(k+'='+v+'\n' for k,v in values.items()))
     return ''.join(result)
 
@@ -143,7 +142,14 @@ def setup():
                     if 'Server Enabled' in cli('http show status') and len(re.findall(r'^\s*telekom-registration(?:-[23])?/\S+\s+\S+\s+Registered\b',cli('pjsip show registrations'),re.M))==3:ready=True;break
                 except subprocess.SubprocessError:pass
                 time.sleep(2)
-            if not ready:raise ValueError('Browser-Schnittstelle oder Telekom-Registrierungen nicht bestätigt.')
+            if not ready:
+                status=cli('http show status')
+                reg=cli('pjsip show registrations')
+                print('HTTP-Startstatus: '+repr(status.splitlines()[:7]))
+                active_http=pbx('cat','/etc/asterisk/http.conf')
+                print('HTTP-Dateioptionen: '+repr([line.strip() for line in active_http.splitlines() if re.match(r'^\s*(enabled|bindaddr|bindport|prefix)\s*=',line)]))
+                print('Telekom-Registrierungen: '+str(len(re.findall(r'^\s*telekom-registration(?:-[23])?/\S+\s+\S+\s+Registered\b',reg,re.M))))
+                raise ValueError('Browser-Schnittstelle oder Telekom-Registrierungen nicht bestätigt.')
         except Exception:
             for name in changed:write_pbx(name,original[name])
             host.write_text(dialplan);run(['docker','restart','--timeout','20',PBX]);raise

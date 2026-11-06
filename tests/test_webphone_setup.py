@@ -9,6 +9,12 @@ class WebPhoneSetupTests(unittest.TestCase):
         result=m.set_section(original,'general',{'enabled':'yes','bindport':'8088'})
         self.assertIn('pretty=yes',result);self.assertIn('password=unchanged-fixture',result)
         self.assertEqual(m.set_section(result,'general',{'enabled':'yes','bindport':'8088'}),result)
+    def test_active_values_are_not_appended_inside_sample_comments(self):
+        original='[general]\nbindaddr=127.0.0.1\n;-- sample block\n[headers]\nexample=unchanged\n--;\n'
+        result=m.set_section(original,'general',{'enabled':'yes','bindaddr':'0.0.0.0','bindport':'8088'})
+        self.assertTrue(result.startswith('[general]\nenabled=yes\nbindaddr=0.0.0.0\nbindport=8088\n'))
+        self.assertIn(';-- sample block\n[headers]\nexample=unchanged\n--;',result)
+        self.assertEqual(m.set_section(result,'general',{'enabled':'yes','bindaddr':'0.0.0.0','bindport':'8088'}),result)
     def test_microphone_is_allowed_only_on_phone_domain(self):
         original='(security_headers) {\n header Permissions-Policy "microphone=()"\n}\napp.example.de {\n import security_headers\n}\ntelefonie.tariq-itconsulting.de {\n import security_headers\n reverse_proxy web:3095\n}\n'
         result=m.patch_caddy(original)
