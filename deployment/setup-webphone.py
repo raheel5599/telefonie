@@ -42,6 +42,9 @@ def browser_dialplan():
     lines=['; TARIQ browser phone: private ARI application only.','[tariq-browser-incoming]']
     for device in range(800,820):
         lines.extend([f'exten => {device},1,Stasis(tariq-webphone,incoming,{device})',' same => n,Answer()',' same => n,Wait(1)',' same => n,Playback(custom/tariq-browser-unavailable)',' same => n,Hangup()',''])
+    lines.append('[internal]')
+    for device in range(800,820):
+        lines.extend([f'exten => {device},1,Dial(Local/{device}@tariq-browser-incoming/n,30)',' same => n,Hangup()',''])
     lines.extend(['[tariq-browser-echo]','exten => s,1,Answer()',' same => n,Echo()',' same => n,Hangup()','','[tariq-browser-outbound]','exten => _X.,1,NoOp(TARIQ Browser Outbound)',' same => n,Set(CALLERID(num)=${TARIQ_COMPANY})',' same => n,Dial(PJSIP/${EXTEN}@telekom,60)',' same => n,Hangup()',''])
     return '\n'.join(lines)
 

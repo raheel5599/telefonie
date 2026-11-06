@@ -5,7 +5,7 @@ import {randomBytes} from 'node:crypto';
 import {PHONE_DEVICES,PHONE_LINES} from './phone-accounts.mjs';
 const APP='tariq-webphone',BASE='http://tariq-telefonie-asterisk:8088';
 export function normalizePhoneTarget(raw){
- if(['echo','100','101','102'].includes(raw))return raw;
+ if(typeof raw==='string'){raw=raw.trim();if(['echo','100','101','102',...PHONE_DEVICES].includes(raw))return raw;}
  if(typeof raw!=='string')throw Error('Ungültige Rufnummer.');
  let n=raw.trim().replace(/[\s()./\-]/g,'');if(n.startsWith('0049'))n='0'+n.slice(4);else if(n.startsWith('+49'))n='0'+n.slice(3);
  if(!(/^(01[567][0-9]{7,9}|0[2-9][0-9]{5,10})$/.test(n))||['0137','0180','0190','0700','0800','0900'].some(p=>n.startsWith(p)))throw Error('Bitte eine reguläre deutsche Handy- oder Festnetznummer eingeben.');
@@ -93,19 +93,28 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
   requireLease(identity,sid);if(ownCall(identity))throw Error('Es läuft bereits ein Anruf.');
   const target=normalizePhoneTarget(input.target),company=identity.role==='admin'?input.company||identity.company:identity.company;
   if(!PHONE_LINES.includes(company))throw Error('Ungültige Absenderrufnummer.');
-  const value={id:randomBytes(16).toString('hex'),device:identity.device,sid,owner:identity.accountId||'admin',incoming:false,from:company,to:target,company,status:'calling',test:target==='echo'};
+  if(PHONE_DEVICES.includes(target)){
+   if(target===identity.device)throw Error('Du kannst dein eigenes Telefon nicht anrufen.');
+   const destination=devices().find(d=>d.id===target);
+   if(!destination)throw Error('Diese Browser-Nebenstelle ist nicht freigegeben.');
+   if(!destination.online)throw Error('Telefon '+target+' ist offline. Bitte dort zuerst online gehen.');
+   if(ownCall({device:target}))throw Error('Telefon '+target+' führt gerade ein Gespräch.');
+  }
+
+  const value={id:randomBytes(16).toString('hex'),device:identity.device,sid,owner:identity.accountId||'admin',incoming:false,from:['100','101','102',...PHONE_DEVICES].includes(target)?identity.device:company,to:target,company,status:'calling',test:target==='echo'};
   calls.set(value.id,value);value.timer=setTimeout(()=>void end(value),70000);
   try{
    await makeMedia(value);value.pendingPeer='tw-peer-'+value.id;channelCalls.set(value.pendingPeer,value.id);
-   const endpoint=target==='echo'?'Local/s@tariq-browser-echo/n':['100','101','102'].includes(target)?'PJSIP/'+target:'Local/'+target+'@tariq-browser-outbound/n';
-   await ari('POST','channels',{endpoint,app:APP,appArgs:'outgoing,'+value.id,channelId:value.pendingPeer,callerId:company,timeout:60},{variables:{__TARIQ_COMPANY:company}});
+   const internal=['100','101','102',...PHONE_DEVICES].includes(target);
+   const endpoint=target==='echo'?'Local/s@tariq-browser-echo/n':PHONE_DEVICES.includes(target)?'Local/'+target+'@tariq-browser-incoming/n':['100','101','102'].includes(target)?'PJSIP/'+target:'Local/'+target+'@tariq-browser-outbound/n';
+   await ari('POST','channels',{endpoint,app:APP,appArgs:'outgoing,'+value.id,channelId:value.pendingPeer,callerId:internal?identity.device:company,timeout:60},{variables:{__TARIQ_COMPANY:company}});
    notify(value.device);return safeCall(value);
   }catch(e){await end(value);throw e}
  }
  async function answer(identity,sid,id){requireLease(identity,sid);const c=ownCall(identity);if(!c||c.id!==id||!c.incoming||c.status!=='ringing')throw Error('Anruf nicht mehr verfügbar.');try{c.status='connecting';await makeMedia(c);await ari('POST','channels/'+encode(c.peer)+'/answer');await bridge(c);return safeCall(c)}catch(e){await end(c);throw e}}
  async function hangup(identity,id){const c=ownCall(identity);if(c&&(!id||c.id===id))await end(c)}
  async function dtmf(identity,id,digit){const c=ownCall(identity);if(!c||c.id!==id||c.status!=='active'||! /^[0-9*#]$/.test(digit))throw Error('Keine aktive Verbindung.');await ari('POST','channels/'+encode(c.peer)+'/dtmf',{dtmf:digit,duration:160})}
- function devices(){return [{device:'800',name:'Administrator · Browser',enabled:true},...accounts.list()].map(u=>({id:u.device,configured:true,registered:!!leases.get(u.device)?.response&&ready,online:!!leases.get(u.device)?.response&&ready,browser:true,name:u.name}))}
+ function devices(){return [{device:'800',name:'Administrator · Browser',enabled:true},...accounts.list().filter(u=>u.enabled)].map(u=>({id:u.device,configured:true,registered:!!leases.get(u.device)?.response&&ready,online:!!leases.get(u.device)?.response&&ready,browser:true,name:u.name}))}
  async function upgrade(req,socket,head,identity,sid,callId){
   const c=ownCall(identity);if(!c||c.id!==callId||c.sid!==sid||!c.mediaConnection||c.socket){socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
   c.socket=socket;

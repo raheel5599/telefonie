@@ -6,7 +6,7 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tariq-service-'));fs.mkdirSync(
 class Socket extends EventTarget{constructor(){super();Socket.current=this;queueMicrotask(()=>this.dispatchEvent(new Event('open')))}close(){}}
 const requests=[];
 const fetcher=async(url,options)=>{requests.push({url:new URL(url),options});return {ok:true,status:options.method==='DELETE'?204:200,json:async()=>String(url).includes('/variable')?{value:'12345678-1234-1234-1234-123456789012'}:{id:'fixture'}}};
-const service=createPhoneService({root,accounts:{list:()=>[]},isAlive:()=>true,fetcher,Socket});
+const service=createPhoneService({root,accounts:{list:()=>[{device:'801',name:'One',enabled:true},{device:'802',name:'Two',enabled:true},{device:'803',name:'Offline',enabled:true},{device:'804',name:'Disabled',enabled:false}]},isAlive:()=>true,fetcher,Socket});
 const one={role:'phone',accountId:'one',device:'801',company:'+4960316843466',name:'One'},two={role:'phone',accountId:'two',device:'802',company:'+4960316871811',name:'Two'};
 const response=()=>Object.assign(new EventEmitter(),{destroyed:false,writeHead(){},write(){},end(){this.destroyed=true;this.emit('close')}});
 try{
@@ -18,6 +18,21 @@ try{
  let rejected='';await service.upgrade({headers:{}},{end:s=>rejected=s},{length:0},two,'sid-two',c.id);assert(rejected.includes('403'));
  await service.hangup(two,c.id);assert.equal(service.state(one).currentCall.id,c.id);
  await service.hangup(one,c.id);assert.equal(service.state(one).currentCall,null);
+ assert.equal(normalizePhoneTarget(' 802 '),'802');
+ await assert.rejects(service.call(one,'sid-one',{target:'801'}),/eigenes Telefon/);
+ await assert.rejects(service.call(one,'sid-one',{target:'803'}),/offline/);
+ await assert.rejects(service.call(one,'sid-one',{target:'804'}),/nicht freigegeben/);
+ const internal=await service.call(one,'sid-one',{target:'802'});
+ const request=requests.filter(r=>r.url.pathname==='/ari/channels'&&r.options.method==='POST').at(-1);
+ assert.equal(request.url.searchParams.get('endpoint'),'Local/802@tariq-browser-incoming/n');
+ assert.equal(request.url.searchParams.get('callerId'),'801');
+ Socket.current.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'StasisStart',args:['incoming','802'],channel:{id:'incoming-two',caller:{number:'801'}}})}));
+ await new Promise(r=>setImmediate(r));
+ const ringing=service.state(two).currentCall;assert.equal(ringing.status,'ringing');assert.equal(ringing.from,'801');
+ const answered=await service.answer(two,'sid-two',ringing.id);assert.equal(answered.status,'active');
+ Socket.current.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'StasisStart',args:['outgoing',internal.id],channel:{id:request.url.searchParams.get('channelId')}})}));
+ await new Promise(r=>setImmediate(r));assert.equal(service.state(one).currentCall.status,'active');
+ await service.hangup(one,internal.id);await service.hangup(two,ringing.id);
  assert.throws(()=>service.events(two,'sid-two','bad-token',response()));
  console.log('Call ownership, protected media, assigned outbound caller ID and strict dial targets passed.');
 }finally{service.stop();fs.rmSync(root,{recursive:true,force:true})}

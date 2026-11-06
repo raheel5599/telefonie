@@ -359,6 +359,7 @@ const webServer=http.createServer(async(req,res)=>{
  if(pathname.startsWith('/api/phone/')){
   const identity=await sessionIdentity(req);if(!identity)return respond(res,401,{error:'Bitte erneut anmelden'});
   const sid=cookie(req);
+  if(pathname==='/api/phone/directory'&&req.method==='GET')return respond(res,200,{devices:phoneService.devices()});
   if(pathname==='/api/phone/status'&&req.method==='GET')return respond(res,200,phoneService.state(identity));
   if(pathname==='/api/phone/events'&&req.method==='GET'){
    try{phoneService.events(identity,sid,new URL(req.url,'http://localhost').searchParams.get('token'),res)}catch(e){respond(res,409,{error:e.message})}return;
