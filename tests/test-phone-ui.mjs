@@ -5,11 +5,13 @@ const ctx=vm.createContext({document:{body:element,querySelector:()=>element,que
 vm.runInContext(source,ctx);vm.runInContext("currentSession={role:'phone',device:'801',name:'Office',company:'+4960316843466'}",ctx);
 vm.runInContext(fs.readFileSync('public/phone.js','utf8'),ctx);await new Promise(r=>setImmediate(r));
 vm.runInContext('render()',ctx);
-assert(element.innerHTML.includes('Zugewiesene Rufnummer'));
+assert(element.innerHTML.includes('Wähltastatur'));
+assert(element.innerHTML.includes('data-phone-digit="9"'));
+assert(element.innerHTML.includes('Telefonmenü'));
 assert(!element.innerHTML.includes('Telefonzugang anlegen'));
 assert(!element.innerHTML.includes('Firmenbezeichnung'));
 assert(!element.innerHTML.includes('Absenderrufnummer<select'));
 assert(element.innerHTML.includes('&lt;Office&gt;'));
-assert(element.innerHTML.includes('Mikrofon & Ton testen'));
+assert(element.innerHTML.includes('Einstellungen')); 
 assert.equal(ctx.document.title,'TARIQ Telefonie · phone');
 console.log('Phone-only role is forced to its assigned telephone even when requesting a settings URL.');
