@@ -78,6 +78,9 @@ def collect():
                 status[name] = value
         except (subprocess.SubprocessError, ValueError, OSError):
             status['errors'].append(name)
+    from system_status import collect_system_status
+    status['wireguard'] = collect_system_status()
+    print('WireGuard-Status: ' + status['wireguard']['status'])
     from pbx_routing import routing_tick
     try:
         route_status = routing_tick()

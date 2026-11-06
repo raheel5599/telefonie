@@ -203,6 +203,32 @@ function queueRouting(input,kind='routing'){
 }
 
 
+function readInfrastructure(now=Date.now()){
+ let data;try{data=JSON.parse(fs.readFileSync(path.join(storeDir,'pbx-status.json'),'utf8'))}catch{return {status:'unknown',checkedAt:null}}
+ const age=now-Date.parse(data.checkedAt),fresh=Number.isFinite(age)&&age>=-10000&&age<=150000;
+ const wg=data.wireguard;
+ if(!fresh||!wg)return {status:fresh?'unknown':'stale',checkedAt:data.checkedAt||null};
+ return {status:['connected','idle','no-handshake','unknown'].includes(wg.status)?wg.status:'unknown',
+  checkedAt:data.checkedAt,handshakeAgeSeconds:Number.isInteger(wg.handshakeAgeSeconds)&&wg.handshakeAgeSeconds>=0?wg.handshakeAgeSeconds:null,
+  routingService:['active','inactive','failed','activating','deactivating'].includes(wg.routingService)?wg.routingService:'unknown',
+  policyRule:typeof wg.policyRule==='boolean'?wg.policyRule:null};
+}
+function buildSettingsExport(){
+ let routing;try{routing=JSON.parse(fs.readFileSync(path.join(storeDir,'pbx-routing.json'),'utf8'))}catch{routing={}}
+ const current=readRouting();
+ const numbers=readNumbers().map(number=>{
+  let target=null;try{target=normalizeRouteTarget(routing.mappings?.[number.e164],allowedExtensions,allowedLines)}catch{}
+  let hours=null;const raw=routing.hours?.[number.e164];
+  if(raw)try{const clean=validateHours({...raw,closedToday:false});hours={...clean,closedDate:/^\d{4}-\d{2}-\d{2}$/.test(raw.closedDate)?raw.closedDate:null}}catch{}
+  const announcement=routing.announcements?.[number.e164];
+  return {...number,target,hours,announcement:{mode:announcement?'custom':'standard',text:typeof announcement?.text==='string'?announcement.text.slice(0,800):null}};
+ });
+ return {format:'tariq-telefonie-settings',version:1,exportedAt:new Date().toISOString(),
+  routingCheckedAt:routing.checkedAt||null,routingCurrent:current.available===true,pendingChangesExcluded:true,
+  contents:['Firmenbezeichnungen','Rufziele','Öffnungszeiten','Gespeicherte eigene Ansagetexte'],
+  excluded:['Zugangsdaten','Ansage-Audiodateien','Anrufliste','Server- und SIP-Konfiguration'],numbers};
+}
+
 function queryCallHistory(params,now=Date.now()){
  const allowedFilters=['all','incoming','outgoing','missed','internal'];
  const filter=params.get('filter')||'all',company=params.get('company')||'all';
@@ -300,6 +326,20 @@ http.createServer(async(req,res)=>{
 
 
 
+
+ if(pathname==='/api/settings'&&req.method==='GET'){
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  const session=sessions.get(cookie(req));
+  return respond(res,200,{checkedAt:new Date().toISOString(),wireguard:readInfrastructure(),
+   access:{email:adminEmail,role:'Administrator',expiresAt:session?new Date(session.until).toISOString():null},
+   routing:{available:readRouting().available===true},
+   callHistory:queryCallHistory(new URLSearchParams()).source});
+ }
+ if(pathname==='/api/settings/export'&&req.method==='GET'){
+  if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});
+  res.setHeader('Content-Disposition','attachment; filename="tariq-telefonie-einstellungen-'+new Date().toISOString().slice(0,10)+'.json"');
+  return respond(res,200,buildSettingsExport());
+ }
 
  if(pathname==='/api/calls'&&req.method==='GET'){
   if(!await authenticated(req))return respond(res,401,{error:'Bitte erneut anmelden'});

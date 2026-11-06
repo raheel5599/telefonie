@@ -42,6 +42,7 @@ jobs:
           node tests/test-speech.mjs
           node tests/test-call-history.mjs
           node tests/test-number-profiles.mjs
+          node tests/test-settings.mjs
           python3 -m unittest discover -s tests -p "test_*.py"
 
 

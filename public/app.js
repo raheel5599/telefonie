@@ -1,3 +1,4 @@
+let settingsState=null,settingsLoading=false,settingsError='',settingsExporting=false,settingsExportMessage='';
 const main=document.querySelector('#main'),sidebar=document.querySelector('#sidebar');
 const nav=[...document.querySelectorAll('[data-page]')];
 let numberDrafts={},numberMessage='',numberSaving=false,numbersReady=false;
@@ -140,12 +141,44 @@ function callsView(){
  '<div class="call-controls"><div class="call-tabs" role="tablist" aria-label="Anrufe filtern">'+tabs.map(([value,title])=>'<button type="button" role="tab" data-call-filter="'+value+'" aria-selected="'+(callFilters.filter===value)+'" class="'+(callFilters.filter===value?'active':'')+'">'+title+'</button>').join('')+'</div><form id="call-search-form" class="call-search"><label class="sr-only" for="call-query">Rufnummer suchen</label><input id="call-query" name="q" type="search" maxlength="80" placeholder="Rufnummer suchen …" value="'+esc(callFilters.q)+'"><label class="sr-only" for="call-company">Firma</label><select id="call-company" name="company"><option value="all">Alle Firmen</option>'+lines.map(x=>'<option value="'+x.e164+'" '+(callFilters.company===x.e164?'selected':'')+'>'+esc(x.label)+'</option>').join('')+'</select><label class="sr-only" for="call-days">Zeitraum</label><select id="call-days" name="days">'+[['7','Letzte 7 Tage'],['30','Letzte 30 Tage'],['90','Letzte 90 Tage']].map(([v,t])=>'<option value="'+v+'" '+(callFilters.days===v?'selected':'')+'>'+t+'</option>').join('')+'</select></form></div><div id="call-results" aria-live="polite">'+callsResults()+'</div>';
 }
 
+function wireguardState(){
+ const wg=settingsState?.wireguard,status=wg?.status;
+ const handshake=wg?.handshakeAgeSeconds;
+ const age=Number.isInteger(handshake)?(handshake<60?handshake+' Sekunden':Math.floor(handshake/60)<60?Math.floor(handshake/60)+' Minuten':Math.floor(handshake/3600)+' Stunden'):null;
+ const stamp=wg?.checkedAt?new Date(wg.checkedAt).toLocaleTimeString('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit'}):'—';
+ return {label:status==='connected'?'Verbunden':status==='idle'?'Kein aktueller Handshake':status==='no-handshake'?'Noch kein Handshake':status==='stale'?'Abfrage veraltet':'Nicht geprüft',
+  detail:(age?'Letzter Handshake vor '+age:'Handshake derzeit nicht abrufbar')+' · geprüft '+stamp+' Uhr',good:status==='connected'};
+}
+function settingsView(){
+ const wg=wireguardState(),data=settingsState;
+ const sipKnown=liveReady()&&!liveStatus.errors?.includes('registrations');
+ const registered=sipKnown?liveStatus.registrations.filter(r=>r.status==='Registered').length:null;
+ const routing=data?.wireguard?.status==='stale'?null:data?.wireguard?.policyRule;
+ const service=data?.wireguard?.routingService;
+ const routeLabel=routing===false?'Routing-Regel fehlt':service==='failed'?'Dienstfehler':service==='inactive'?'Dienst inaktiv':routing===true&&service==='active'?'Vorbereitet':'Nicht vollständig geprüft';
+ const expiry=data?.access?.expiresAt?new Date(data.access.expiresAt).toLocaleString('de-DE',{timeZone:'Europe/Berlin',dateStyle:'short',timeStyle:'short'}):'—';
+ const stamp=data?.checkedAt?new Date(data.checkedAt).toLocaleTimeString('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit'}):'—';
+ return head('Systemeinstellungen','Verbindungen prüfen, Verwaltung öffnen und deine Einstellungen sichern.')+
+ '<div class="live-toolbar"><span>Letzte Abfrage: '+esc(stamp)+' Uhr · automatische Aktualisierung</span><button type="button" data-settings-refresh '+(settingsLoading?'disabled':'')+'>'+(settingsLoading?'Wird geprüft …':'Status aktualisieren')+'</button></div>'+
+ (settingsError?'<div class="warning" role="status">'+esc(settingsError)+'</div>':'')+
+ panel('Verbindungsstatus',row('◉','Asterisk AMI',monitor(),pill(pbxStatus?.monitoring==='connected'?'Erreichbar':'Nicht bestätigt',pbxStatus?.monitoring==='connected'?'good':'neutral'))+
+ row('☎','Telekom SIP',registered===null?'Registrierungen derzeit nicht abrufbar':registered+' von 3 Rufnummern registriert',pill(registered===null?'Nicht geprüft':registered===3?'Registriert':'Prüfen',registered===3?'good':'neutral'))+
+ row('⇄','WireGuard · Friedberg',wg.detail,pill(wg.label,wg.good?'good':'neutral'))+
+ row('⇄','Telekom-Routing','Tunnel-Routing und Routing-Dienst',pill(routeLabel,routing===true&&service==='active'?'good':'neutral'))+
+ row('↪','Rufziele & Öffnungszeiten',data?.routing?.available?'Aktive Zuordnungen werden geprüft':'Status derzeit nicht abrufbar',pill(data?.routing?.available?'Bereit':'Nicht geprüft',data?.routing?.available?'good':'neutral'))+
+ row('≡','Anrufliste',data?.callHistory?.status==='connected'?'Neue Einträge nach Gesprächsende innerhalb etwa einer Minute':'Die Erfassung wird derzeit nicht live bestätigt',pill(data?.callHistory?.status==='connected'?'Verbunden':'Nicht geprüft',data?.callHistory?.status==='connected'?'good':'neutral')))+
+ '<div class="settings-grid">'+panel('Telefonanlage verwalten','<div class="panel-pad settings-links"><a class="settings-link" href="#numbers"><span class="circle">☎</span><span><strong>SIP-Trunks & Rufnummern</strong><small>Drei Telekom-Rufnummern, Status und Firmenbezeichnungen</small></span><span aria-hidden="true">↗</span></a><a class="settings-link" href="#extensions"><span class="circle">♧</span><span><strong>Nebenstellen & Geräte</strong><small>Nebenstellen 100, 101 und 102 · aktueller Gerätestatus</small></span><span aria-hidden="true">↗</span></a><a class="settings-link" href="#forwards"><span class="circle">↪</span><span><strong>Weiterleitungen</strong><small>Interne Nebenstelle oder externe Rufnummer festlegen</small></span><span aria-hidden="true">↗</span></a><a class="settings-link" href="#hours"><span class="circle">◷</span><span><strong>Öffnungszeiten & Ansagen</strong><small>Wochenpläne und eigene Geschlossen-Ansagen verwalten</small></span><span aria-hidden="true">↗</span></a></div>')+
+ panel('Zugang & Sicherheit','<div class="panel-pad"><dl class="settings-details"><div><dt>Angemeldet als</dt><dd>'+esc(data?.access?.email||'Wird geladen …')+'</dd></div><div><dt>Berechtigung</dt><dd>'+esc(data?.access?.role||'Wird geprüft …')+'</dd></div><div><dt>Sitzung gültig bis</dt><dd>'+esc(expiry)+' Uhr</dd></div><div><dt>Anmeldung</dt><dd>Bestätigter Administratorzugang</dd></div></dl><p class="page-text">Nur der freigegebene Administrator kann Einstellungen ändern. Mit „Abmelden“ beendest du deine aktuelle Sitzung.</p></div>')+'</div>'+
+ '<div class="settings-grid">'+panel('Einstellungen sichern','<div class="panel-pad"><p class="page-text">Firmenbezeichnungen, Rufziele, Öffnungszeiten und gespeicherte eigene Ansagetexte als JSON herunterladen.</p><button type="button" class="save-number" data-settings-export '+(settingsExporting?'disabled':'')+'>'+(settingsExporting?'Export wird erstellt …':'Einstellungen herunterladen')+'</button><p class="forward-message" role="status" aria-live="polite">'+esc(settingsExportMessage)+'</p><p class="page-text">Der Export enthält keine Passwörter, Audiodateien oder Anrufdaten und ersetzt kein vollständiges Anlagen-Backup. Ein automatischer Import ist noch nicht eingerichtet.</p></div>')+
+ panel('Weitere Funktionen','<div class="panel-pad"><div class="settings-capability"><div><h3>Anrufaufzeichnung</h3><p>Über dieses Portal noch nicht eingerichtet.</p></div>'+pill('Nicht eingerichtet')+'</div><div class="settings-capability"><div><h3>Browser-Telefonie · WebRTC</h3><p>Telefonieren im Browser ist noch nicht eingerichtet. SIP-Endgeräte werden separat angebunden.</p></div>'+pill('In Vorbereitung')+'</div></div>')+'</div>';
+}
+
 const screens={
  overview:()=>head('Telefonie im Überblick','Drei Telekom-Rufnummern, Nebenstellen und Systemverbindungen zentral verwalten.')+notice()+
  '<div class="stats">'+stat('Telekom-Rufnummern',liveReady()&&!liveStatus.errors?.includes('registrations')?liveStatus.registrations.filter(r=>r.status==='Registered').length+' / 3':'3',liveReady()&&!liveStatus.errors?.includes('registrations')?'Aktuell registriert':'Eingerichtet · Live-Status unbekannt')+stat('Nebenstellen',liveReady()&&!liveStatus.errors?.includes('extensions')?liveStatus.extensions.filter(e=>e.online===true).length+' / 3':'3',liveReady()&&!liveStatus.errors?.includes('extensions')?'Aktuell erreichbar':'100 · 101 · 102 eingerichtet')+stat('Laufende Gespräche',liveStatus?.activeCalls??'—',liveStatus?.activeChannels==null?'Live-Abfrage nicht verfügbar':esc(liveStatus.activeChannels)+' aktive Kanäle · einzelne Verbindungen')+stat('Asterisk AMI',esc(monitor()),'Verbindung zum Monitoring')+'</div>'+
  '<div class="grid">'+panel('Rufnummern & Zuordnung',lineRows(),'Telekom · Friedberg')+
  panel('Systemverbindungen',row('◉','Asterisk AMI',monitor(),pill(pbxStatus?.monitoring==='connected'?'Online':'Nicht bestätigt',pbxStatus?.monitoring==='connected'?'good':'neutral'))+
- row('⇄','WireGuard · Friedberg','SIP-Routing zuletzt erfolgreich getestet',pill('Zuletzt getestet'))+
+ row('⇄','WireGuard · Friedberg',wireguardState().detail,pill(wireguardState().label,wireguardState().good?'good':'neutral'))+
  row('◈','Telefonie-Web-App','Browser-Telefonie in Vorbereitung',pill('Geplant')),'Statusübersicht')+'</div>',
  numbers:()=>head('Rufnummern','Deine Telekom-Rufnummern, Firmenbezeichnungen und Rufziele zentral verwalten.')+
  panel('Telekom · Rufnummern',lineRows(),'3 Registrierungen')+
@@ -160,11 +193,7 @@ const screens={
  panel('Geräte & Zugang','<div class="panel-pad"><p class="page-text">Registrierte Geräte, SIP-Zugangsdaten zurücksetzen, Endgeräte zuweisen und neue Nebenstellen erstellen: folgt mit der sicheren Asterisk-Anbindung. Passwörter werden niemals in der Oberfläche offengelegt.</p></div>'),
  calls:callsView,
  hours:hoursView,
- settings:()=>head('Systemeinstellungen','Verbindungen, Sicherheit und technische Konfiguration.')+
- panel('Verbindungsstatus',row('◉','Asterisk AMI',monitor(),pill(pbxStatus?.monitoring==='connected'?'Erreichbar':'Nicht bestätigt',pbxStatus?.monitoring==='connected'?'good':'neutral'))+
- row('☎','Telekom SIP',liveReady()&&!liveStatus.errors?.includes('registrations')?liveStatus.registrations.filter(r=>r.status==='Registered').length+' von 3 Rufnummern registriert':'Drei Registrierungen zuletzt bestätigt',pill(liveReady()&&!liveStatus.errors?.includes('registrations')?'Live-Status':'Zuletzt bestätigt'))+
- row('⇄','WireGuard','Friedberg ↔ Hetzner · zuletzt getestet',pill('Live-Prüfung folgt')))+
- panel('Administration','<div class="panel-pad"><div class="feature-grid">'+['SIP-Trunks','Nebenstellen & Geräte','Sicherheit & Rollen','Anrufaufzeichnung (optional)','Backups & Wiederherstellung','API / WebRTC'].map(x=>'<div class="feature">⚙ '+x+' <small>Später konfigurierbar</small></div>').join('')+'</div><p class="page-text">Produktive Einstellungen werden erst nach Authentifizierung, Validierung und sicherem Rollback freigegeben.</p></div>')
+ settings:settingsView
 };
 function render(){const id=location.hash.slice(1),page=screens[id]?id:'overview';main.innerHTML=screens[page]();nav.forEach(b=>b.classList.toggle('active',b.dataset.page===page));sidebar.classList.remove('open');document.title='TARIQ Telefonie · '+page;if(page==='calls'&&!callCache&&!callsLoading)loadCallHistory();}
 nav.forEach(b=>b.addEventListener('click',()=>{location.hash=b.dataset.page;render()}));
@@ -180,9 +209,9 @@ async function loadStatus(){
  }finally{statusLoading=false;if(button?.isConnected)button.disabled=false}
 }
 main.addEventListener('click',e=>{if(e.target.closest('#refresh-status'))loadStatus()});
-async function initialize(){try{const r=await api('/api/session');if(r.authenticated){document.body.classList.add('authenticated');render();loadStatus();loadRoutes();loadNumberProfiles()}else{document.querySelector('[name=email]').value=r.email||''}}catch{document.querySelector('#login-error').textContent='Anmeldeserver nicht erreichbar.'}}
-document.querySelector('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,button=form.querySelector('button'),error=document.querySelector('#login-error');button.disabled=true;error.textContent='';try{await api('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});form.elements.password.value='';document.body.classList.add('authenticated');render();loadStatus();loadRoutes();loadNumberProfiles()}catch(err){error.textContent=err.message}finally{button.disabled=false}});
-document.querySelector('#logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}catch{}document.body.classList.remove('authenticated');pbxStatus=null;liveStatus=null;callCache=null;callError='';++callRequestVersion;callsLoading=false;callFilters={filter:'all',company:'all',days:'30',q:'',page:1};document.querySelector('[name=password]').value='';});
+async function initialize(){try{const r=await api('/api/session');if(r.authenticated){document.body.classList.add('authenticated');render();loadStatus();loadRoutes();loadNumberProfiles();loadSettings()}else{document.querySelector('[name=email]').value=r.email||''}}catch{document.querySelector('#login-error').textContent='Anmeldeserver nicht erreichbar.'}}
+document.querySelector('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,button=form.querySelector('button'),error=document.querySelector('#login-error');button.disabled=true;error.textContent='';try{await api('/api/login',{method:'POST',body:JSON.stringify({email:form.elements.email.value,password:form.elements.password.value})});form.elements.password.value='';document.body.classList.add('authenticated');render();loadStatus();loadRoutes();loadNumberProfiles();loadSettings()}catch(err){error.textContent=err.message}finally{button.disabled=false}});
+document.querySelector('#logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}catch{}document.body.classList.remove('authenticated');pbxStatus=null;liveStatus=null;settingsState=null;settingsError='';callCache=null;callError='';++callRequestVersion;callsLoading=false;callFilters={filter:'all',company:'all',days:'30',q:'',page:1};document.querySelector('[name=password]').value='';});
 initialize();
 
 setInterval(()=>{if(document.body.classList.contains('authenticated'))loadStatus()},30000);
@@ -355,3 +384,26 @@ main.addEventListener('submit',async e=>{
  try{const data=await api('/api/numbers',{method:'POST',body:JSON.stringify({line,label})});applyNumberProfiles(data.numbers);delete numberDrafts[line];callCache=null;numberMessage='Bezeichnung gespeichert.'}
  catch(err){numberMessage=err.message}finally{numberSaving=false;if(location.hash==='#numbers')render()}
 });
+
+async function loadSettings(){
+ if(settingsLoading)return;settingsLoading=true;
+ try{const data=await api('/api/settings');if(document.body.classList.contains('authenticated')){settingsState=data;settingsError=''}}
+ catch{settingsState=null;settingsError='Systemstatus konnte nicht geladen werden. Bitte erneut versuchen.'}
+ finally{settingsLoading=false;if(location.hash==='#settings'&&document.body.classList.contains('authenticated'))render()}
+}
+main.addEventListener('click',async e=>{
+ if(e.target.closest('[data-settings-refresh]')){await Promise.all([loadStatus(),loadSettings()]);return}
+ if(!e.target.closest('[data-settings-export]')||settingsExporting)return;
+ settingsExporting=true;settingsExportMessage='';render();let url;
+ try{
+  const response=await fetch('/api/settings/export',{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok)throw Error(response.status===401?'Bitte erneut anmelden.':'Einstellungen konnten nicht exportiert werden.');
+  const data=await response.json();
+  url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+  const link=document.createElement('a');link.href=url;link.download='tariq-telefonie-einstellungen-'+data.exportedAt.slice(0,10)+'.json';document.body.append(link);link.click();link.remove();
+  settingsExportMessage=data.routingCurrent?'Export zum Herunterladen erstellt.':'Export erstellt. Die Rufziel-Daten sind zuletzt gespeicherte Werte und derzeit nicht live bestätigt.';
+ }catch(err){settingsExportMessage=err.message}
+ finally{settingsExporting=false;if(url)setTimeout(()=>URL.revokeObjectURL(url),60000);if(location.hash==='#settings')render()}
+});
+window.addEventListener('hashchange',()=>{if(location.hash==='#settings'&&document.body.classList.contains('authenticated'))loadSettings()});
+setInterval(()=>{if(document.body.classList.contains('authenticated'))loadSettings()},30000);
