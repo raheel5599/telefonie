@@ -78,7 +78,7 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
  function connectBackend(){
   if(stopped||eventSocket)return;const c=backendConfig();if(!c){retry=setTimeout(connectBackend,5000);retry.unref?.();return}
   const url=new URL('/ari/events',BASE.replace('http:','ws:'));url.searchParams.set('app',APP);url.searchParams.set('api_key',c.user+':'+c.password);
-  const ws=new Socket(url);eventSocket=ws;
+  const ws=new Socket(url,'ari');eventSocket=ws;
   ws.addEventListener('open',()=>{ready=true;for(const l of leases.values())send(l)});
   ws.addEventListener('message',e=>{try{const event=JSON.parse(String(e.data));void handleEvent(event).catch(()=>{})}catch{}});
   const lost=()=>{if(eventSocket!==ws)return;eventSocket=null;ready=false;for(const c of calls.values())void end(c);for(const l of leases.values())send(l);if(!stopped){retry=setTimeout(connectBackend,3000);retry.unref?.()}};

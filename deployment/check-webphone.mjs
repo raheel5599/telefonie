@@ -6,7 +6,7 @@ async function ari(method,path,params={}){const url=new URL('/ari/'+path,base);f
 const wait=async(predicate,message)=>{for(let i=0;i<150;i++){if(predicate())return;await new Promise(r=>setTimeout(r,40))}throw Error(message)};
 try{
  const url=new URL('/ari/events',base.replace('http:','ws:'));url.searchParams.set('app',app);url.searchParams.set('api_key',secret.user+':'+secret.password);
- events=new WebSocket(url);let open=false;events.onopen=()=>open=true;events.onmessage=e=>{try{const v=JSON.parse(String(e.data));if(v.type==='StasisStart'&&v.channel?.id===peerId)peerStarted=true}catch{}};events.onerror=()=>{};
+ events=new WebSocket(url,'ari');let open=false;events.onopen=()=>open=true;events.onmessage=e=>{try{const v=JSON.parse(String(e.data));if(v.type==='StasisStart'&&v.channel?.id===peerId)peerStarted=true}catch{}};events.onerror=()=>{};
  await wait(()=>open,'Steuerungsverbindung nicht bereit.');
  await ari('POST','channels/externalMedia',{app,external_host:'INCOMING',transport:'websocket',encapsulation:'none',connection_type:'server',format:'slin16',channelId:mediaId});resources.push(['channels',mediaId]);
  const connection=await ari('GET','channels/'+mediaId+'/variable',{variable:'MEDIA_WEBSOCKET_CONNECTION_ID'});
