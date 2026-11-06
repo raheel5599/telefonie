@@ -9,14 +9,17 @@ else:
     with urllib.request.urlopen('https://telefonie.tariq-itconsulting.de/logo.png',timeout=20) as r:(assets/'logo.png').write_bytes(r.read())
 with Image.open(assets/'logo.png') as source:
     icon=Image.new('RGB',(1024,1024),'#0b0d11');image=ImageOps.contain(source.convert('RGBA'),(930,930));icon.paste(image,((1024-image.width)//2,(1024-image.height)//2),image);icon.save(assets/'icon.png')
-package=ROOT/'android/app/src/main/kotlin/de/tariqitconsulting/tariq_telefonie'
+(ROOT/'android/app/src/main/kotlin/de/tariqitconsulting/tariq_telefonie/MainActivity.kt').unlink(missing_ok=True)
+package=ROOT/'android/app/src/main/kotlin/de/tariqitconsulting/telefonie'
 package.mkdir(parents=True,exist_ok=True);shutil.copyfile(ROOT/'native/MainActivity.kt',package/'MainActivity.kt')
 manifest=ROOT/'android/app/src/main/AndroidManifest.xml';ns='http://schemas.android.com/apk/res/android';ET.register_namespace('android',ns);tree=ET.parse(manifest);doc=tree.getroot()
 for name in ['android.permission.INTERNET','android.permission.RECORD_AUDIO','android.permission.MODIFY_AUDIO_SETTINGS']:
     if not any(x.get('{'+ns+'}name')==name for x in doc.findall('uses-permission')):ET.SubElement(doc,'uses-permission',{'{'+ns+'}name':name})
 application=doc.find('application');application.set('{'+ns+'}label','TARIQ Telefonie');application.set('{'+ns+'}allowBackup','false');application.set('{'+ns+'}usesCleartextTraffic','false');tree.write(manifest,encoding='utf-8',xml_declaration=True)
 gradle=ROOT/'android/app/build.gradle.kts'
-if gradle.is_file():gradle.write_text(gradle.read_text().replace('minSdk = flutter.minSdkVersion','minSdk = 24'))
+if gradle.is_file():gradle.write_text(gradle.read_text().replace('minSdk = flutter.minSdkVersion','minSdk = 24').replace('de.tariqitconsulting.tariq_telefonie','de.tariqitconsulting.telefonie'))
+project=ROOT/'ios/Runner.xcodeproj/project.pbxproj'
+source=project.read_text();source=re.sub(r'PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);',lambda m:'PRODUCT_BUNDLE_IDENTIFIER = de.tariqitconsulting.telefonie'+('.RunnerTests' if 'RunnerTests' in m[1] else '')+';',source);project.write_text(source)
 info=ROOT/'ios/Runner/Info.plist'
 with info.open('rb') as f:settings=plistlib.load(f)
 settings['CFBundleDisplayName']='TARIQ Telefonie';settings['NSMicrophoneUsageDescription']='TARIQ Telefonie benötigt das Mikrofon für deine Telefonate.'

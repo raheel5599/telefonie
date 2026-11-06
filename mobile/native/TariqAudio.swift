@@ -9,6 +9,7 @@ final class TariqAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   private var muted=false
   private var ringTimer: Timer?
   private var queued=0
+  private var generation=0
   private let outputFormat=AVAudioFormat(standardFormatWithSampleRate:16000,channels:1)!
   static func register(with registrar: FlutterPluginRegistrar){
     let instance=TariqAudioPlugin()
@@ -42,7 +43,7 @@ final class TariqAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     try engine.inputNode.setVoiceProcessingEnabled(true)
     let input=engine.inputNode.outputFormat(forBus:0)
     guard input.sampleRate>0,let converter=AVAudioConverter(from:input,to:outputFormat)else{throw NSError(domain:"TariqAudio",code:1)}
-    self.converter=converter;self.engine=engine;self.player=player;muted=false
+    generation+=1;let currentGeneration=generation;self.converter=converter;self.engine=engine;self.player=player;muted=false
     engine.attach(player);engine.connect(player,to:engine.mainMixerNode,format:outputFormat)
     engine.inputNode.installTap(onBus:0,bufferSize:960,format:input){[weak self]buffer,_ in
       guard let self=self,!self.muted else{return}
@@ -53,7 +54,7 @@ final class TariqAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
       guard error==nil,let floats=output.floatChannelData?[0],output.frameLength>0 else{return}
       var data=Data(capacity:Int(output.frameLength)*2)
       for i in 0..<Int(output.frameLength){var value=Int16(max(-32767,min(32767,Int(floats[i]*32767)))).littleEndian;withUnsafeBytes(of:&value){data.append(contentsOf:$0)}}
-      DispatchQueue.main.async{[weak self] in if self?.engine != nil{self?.sink?(FlutterStandardTypedData(bytes:data))}}
+      DispatchQueue.main.async{[weak self] in if self?.engine != nil && self?.generation==currentGeneration{self?.sink?(FlutterStandardTypedData(bytes:data))}}
     }
     do{try engine.start();player.play()}catch{stop();throw error}
   }
@@ -63,5 +64,5 @@ final class TariqAudioPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     data.withUnsafeBytes{raw in let bytes=raw.bindMemory(to:UInt8.self);for i in 0..<Int(buffer.frameLength){let value=Int16(bitPattern:UInt16(bytes[i*2])|UInt16(bytes[i*2+1])<<8);samples[i]=Float(value)/32768}}
     queued+=1;player.scheduleBuffer(buffer){[weak self] in DispatchQueue.main.async{self?.queued=max(0,(self?.queued ?? 1)-1)}}
   }
-  private func stop(){ringTimer?.invalidate();ringTimer=nil;if let e=engine{e.inputNode.removeTap(onBus:0);e.stop()};player?.stop();engine=nil;player=nil;converter=nil;queued=0;try? AVAudioSession.sharedInstance().setActive(false,options:.notifyOthersOnDeactivation)}
+  private func stop(){generation+=1;ringTimer?.invalidate();ringTimer=nil;if let e=engine{e.inputNode.removeTap(onBus:0);e.stop()};player?.stop();engine=nil;player=nil;converter=nil;queued=0;try? AVAudioSession.sharedInstance().setActive(false,options:.notifyOthersOnDeactivation)}
 }

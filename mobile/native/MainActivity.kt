@@ -1,4 +1,4 @@
-package de.tariqitconsulting.tariq_telefonie
+package de.tariqitconsulting.telefonie
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -24,6 +24,7 @@ class MainActivity: FlutterActivity(), EventChannel.StreamHandler {
   private var ring: Ringtone? = null
   private val running = AtomicBoolean(false)
   @Volatile private var muted = false
+  @Volatile private var audioGeneration = 0
   private val playback = LinkedBlockingDeque<ByteArray>(12)
   private var pending: MethodChannel.Result? = null
   private lateinit var manager: AudioManager
@@ -60,12 +61,12 @@ class MainActivity: FlutterActivity(), EventChannel.StreamHandler {
     recorder=input;player=output
     if(AcousticEchoCanceler.isAvailable())aec=AcousticEchoCanceler.create(input.audioSessionId)?.apply{enabled=true}
     if(NoiseSuppressor.isAvailable())noise=NoiseSuppressor.create(input.audioSessionId)?.apply{enabled=true}
-    running.set(true);muted=false;input.startRecording();output.play()
-    Thread({val buffer=ByteArray(640);while(running.get()){val n=input.read(buffer,0,buffer.size);if(n>0&&!muted){val data=buffer.copyOf(n);main.post{if(running.get())sink?.success(data)}}else if(n<0)break}},"TariqCapture").apply{isDaemon=true;start()}
-    Thread({while(running.get()){try{val bytes=playback.take();if(running.get())output.write(bytes,0,bytes.size)}catch(_:InterruptedException){break}catch(_:Exception){break}}},"TariqPlayback").apply{isDaemon=true;start()}
+    val generation=++audioGeneration;running.set(true);muted=false;input.startRecording();output.play()
+    Thread({val buffer=ByteArray(640);while(running.get()&&audioGeneration==generation){val n=input.read(buffer,0,buffer.size);if(n>0&&!muted){val data=buffer.copyOf(n);main.post{if(running.get()&&audioGeneration==generation)sink?.success(data)}}else if(n<0)break}},"TariqCapture").apply{isDaemon=true;start()}
+    Thread({while(running.get()&&audioGeneration==generation){try{val bytes=playback.take();if(running.get()&&audioGeneration==generation)output.write(bytes,0,bytes.size)}catch(_:InterruptedException){break}catch(_:Exception){break}}},"TariqPlayback").apply{isDaemon=true;start()}
   }
   private fun stopAudio(){
-    running.set(false);playback.clear();playback.offer(ByteArray(0))
+    audioGeneration++;running.set(false);playback.clear();playback.offer(ByteArray(0))
     try{recorder?.stop()}catch(_:Exception){};recorder?.release();recorder=null
     try{player?.stop()}catch(_:Exception){};player?.release();player=null
     aec?.release();aec=null;noise?.release();noise=null

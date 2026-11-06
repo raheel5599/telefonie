@@ -19,6 +19,7 @@ class PhoneController extends ChangeNotifier {
   WebSocket? socket;
   String? mediaCall;
   int generation=0;
+  bool flowPaused=false;
   Future<void> initialize() async {
     try { await api.restore(); if(api.token != null) { final s=await api.json('/api/session'); if(s['authenticated']==true){session=s;await refresh();} else {await api.forget();} } } catch(e){error=e.toString();}
     notifyListeners();
@@ -31,6 +32,7 @@ class PhoneController extends ChangeNotifier {
   Future<void> login(String name,String password) => run(() async {session=await api.login(name,password);await refresh();});
   Future<void> refresh() async {
     state=await api.json('/api/phone/status');
+    if(eventSubscription==null)state={...state,'online':false,'currentCall':null};
     contacts=List<Map<String,dynamic>>.from((await api.json('/api/phone/directory'))['devices']??[]);
     holdSettings=await api.json('/api/phone/hold-settings');
     notifyListeners();
@@ -61,21 +63,21 @@ class PhoneController extends ChangeNotifier {
     if(mediaCall==id && socket!=null)return;
     await stopMedia();
     mediaCall=id;final current=generation;
-    await audio.start();
+    await audio.start();await audio.speaker(speaker);
     final ws=await api.media(id);
     if(current!=generation || mediaCall!=id){await ws.close();await audio.stop();return;}
     socket=ws;
     final pending=<int>[];
     captureSubscription=audio.capture.listen((data){
-      if(socket!=ws||muted||['held','transferring'].contains(call?['status']))return;
+      if(socket!=ws||flowPaused||muted||['held','transferring'].contains(call?['status']))return;
       pending.addAll(data);
       while(pending.length>=640){ws.add(Uint8List.fromList(pending.sublist(0,640)));pending.removeRange(0,640);}
       if(pending.length>6400)pending.clear();
     });
-    socketSubscription=ws.listen((data){if(data is List<int>)unawaited(audio.play(Uint8List.fromList(data)));},onError:(Object e){error='Audioverbindung unterbrochen.';notifyListeners();},onDone:(){if(socket==ws){socket=null;unawaited(audio.stop());}});
+    socketSubscription=ws.listen((data){if(data is List<int>)unawaited(audio.play(Uint8List.fromList(data)));else if(data is String){if(data.contains('MEDIA_XOFF'))flowPaused=true;else if(data.contains('MEDIA_XON'))flowPaused=false;}},onError:(Object e){error='Audioverbindung unterbrochen.';notifyListeners();},onDone:(){if(socket==ws){socket=null;unawaited(audio.stop());}});
   }
   Future<void> stopMedia() async {
-    final old=socket;socket=null;mediaCall=null;
+    final old=socket;socket=null;mediaCall=null;flowPaused=false;
     await captureSubscription?.cancel();captureSubscription=null;
     await socketSubscription?.cancel();socketSubscription=null;
     await old?.close();await audio.stop();
