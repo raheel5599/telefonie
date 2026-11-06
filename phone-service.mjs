@@ -48,7 +48,8 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
   call.mediaConnection=value.value;
  }
  async function bridge(call){
-  if(call.bridge||call.ending)return;
+  if(call.bridge||call.bridging||call.ending||!call.mediaStarted||!call.peerStarted)return;
+  call.bridging=true;
   const id='tw-bridge-'+call.id;await ari('POST','bridges',{type:'mixing,proxy_media',bridgeId:id});call.bridge=id;
   await ari('POST','bridges/'+id+'/addChannel',{channel:call.peer+','+call.media});
   call.status='active';call.startedAt=new Date().toISOString();clearTimeout(call.timer);call.timer=setTimeout(()=>void end(call),2*3600000);notify(call.device);
@@ -69,7 +70,8 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
   if(event.type==='StasisStart'){
    if(event.args?.[0]==='incoming'){await incoming(event);return}
    const call=calls.get(channelCalls.get(event.channel?.id));
-   if(call&&event.channel.id===call.pendingPeer){call.peer=event.channel.id;await bridge(call)}
+   if(call&&event.channel.id===call.media){call.mediaStarted=true;await bridge(call)}
+   else if(call&&event.channel.id===call.pendingPeer){call.peer=event.channel.id;call.peerStarted=true;await bridge(call)}
   }
   if(event.type==='StasisEnd'||event.type==='ChannelDestroyed'){
    const call=calls.get(channelCalls.get(event.channel?.id));if(call)void end(call);
@@ -111,7 +113,7 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
    notify(value.device);return safeCall(value);
   }catch(e){await end(value);throw e}
  }
- async function answer(identity,sid,id){requireLease(identity,sid);const c=ownCall(identity);if(!c||c.id!==id||!c.incoming||c.status!=='ringing')throw Error('Anruf nicht mehr verfügbar.');try{c.status='connecting';await makeMedia(c);await ari('POST','channels/'+encode(c.peer)+'/answer');await bridge(c);return safeCall(c)}catch(e){await end(c);throw e}}
+ async function answer(identity,sid,id){requireLease(identity,sid);const c=ownCall(identity);if(!c||c.id!==id||!c.incoming||c.status!=='ringing')throw Error('Anruf nicht mehr verfügbar.');try{c.status='connecting';await makeMedia(c);await ari('POST','channels/'+encode(c.peer)+'/answer');c.peerStarted=true;await bridge(c);return safeCall(c)}catch(e){await end(c);throw e}}
  async function hangup(identity,id){const c=ownCall(identity);if(c&&(!id||c.id===id))await end(c)}
  async function dtmf(identity,id,digit){const c=ownCall(identity);if(!c||c.id!==id||c.status!=='active'||! /^[0-9*#]$/.test(digit))throw Error('Keine aktive Verbindung.');await ari('POST','channels/'+encode(c.peer)+'/dtmf',{dtmf:digit,duration:160})}
  function devices(){return [{device:'800',name:'Administrator · Browser',enabled:true},...accounts.list().filter(u=>u.enabled)].map(u=>({id:u.device,configured:true,registered:!!leases.get(u.device)?.response&&ready,online:!!leases.get(u.device)?.response&&ready,browser:true,name:u.name}))}

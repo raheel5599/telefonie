@@ -29,7 +29,12 @@ try{
  Socket.current.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'StasisStart',args:['incoming','802'],channel:{id:'incoming-two',caller:{number:'801'}}})}));
  await new Promise(r=>setImmediate(r));
  const ringing=service.state(two).currentCall;assert.equal(ringing.status,'ringing');assert.equal(ringing.from,'801');
- const answered=await service.answer(two,'sid-two',ringing.id);assert.equal(answered.status,'active');
+ const answered=await service.answer(two,'sid-two',ringing.id);assert.equal(answered.status,'connecting');
+ // Incoming media cannot enter an Asterisk bridge until its WebSocket connects.
+ assert(!requests.some(r=>r.url.pathname.includes('/bridges/')&&r.url.pathname.endsWith('/addChannel')&&r.url.searchParams.get('channel')?.includes('incoming-two')));
+ Socket.current.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'StasisStart',channel:{id:'tw-media-'+ringing.id}})}));
+ await new Promise(r=>setImmediate(r));assert.equal(service.state(two).currentCall.status,'active');
+ Socket.current.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'StasisStart',channel:{id:'tw-media-'+internal.id}})}));
  Socket.current.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'StasisStart',args:['outgoing',internal.id],channel:{id:request.url.searchParams.get('channelId')}})}));
  await new Promise(r=>setImmediate(r));assert.equal(service.state(one).currentCall.status,'active');
  await service.hangup(one,internal.id);await service.hangup(two,ringing.id);
