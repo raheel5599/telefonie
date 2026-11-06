@@ -128,6 +128,7 @@ jobs:
               docker exec -u asterisk -w / tariq-telefonie-asterisk mv "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav.tmp" "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav"
             done
             docker exec -w /app tariq-telefonie-telefonie-web-1 node deployment/check-speech.mjs
+            python3 deployment/setup-hold.py
             if ! docker exec -w /app tariq-telefonie-telefonie-web-1 node deployment/check-webphone.mjs; then python3 deployment/diagnose-hold.py; exit 1; fi
             python3 deployment/collect-pbx-status.py --install-cron
 
