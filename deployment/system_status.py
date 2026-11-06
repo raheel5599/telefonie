@@ -42,11 +42,15 @@ def has_routing_rule(output):
 def collect_system_status(reader=read_command, now=None):
     now = time.time() if now is None else now
     result = {'interface': 'wg-friedberg', 'status': 'unknown',
-              'handshakeAgeSeconds': None, 'routingService': 'unknown', 'policyRule': None}
+              'handshakeAgeSeconds': None, 'routingService': 'unknown', 'policyRule': None, 'reason': None}
     try:
         # Query only handshakes. Never use `wg show ... dump` (contains private keys).
         output = reader(['sudo', '-n', '/usr/bin/wg', 'show', 'wg-friedberg', 'latest-handshakes'])
         result.update(parse_handshakes(output, now))
+    except subprocess.CalledProcessError as exc:
+        error = (exc.stderr or '').lower()
+        if any(word in error for word in ('password', 'permission', 'not permitted', 'not allowed', 'sudoers')):
+            result['reason'] = 'permission-required'
     except (subprocess.SubprocessError, OSError, ValueError):
         pass
     try:

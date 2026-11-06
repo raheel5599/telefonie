@@ -209,7 +209,7 @@ function readInfrastructure(now=Date.now()){
  const wg=data.wireguard;
  if(!fresh||!wg)return {status:fresh?'unknown':'stale',checkedAt:data.checkedAt||null};
  return {status:['connected','idle','no-handshake','unknown'].includes(wg.status)?wg.status:'unknown',
-  checkedAt:data.checkedAt,handshakeAgeSeconds:Number.isInteger(wg.handshakeAgeSeconds)&&wg.handshakeAgeSeconds>=0?wg.handshakeAgeSeconds:null,
+  checkedAt:data.checkedAt,reason:wg.reason==='permission-required'?'permission-required':null,handshakeAgeSeconds:Number.isInteger(wg.handshakeAgeSeconds)&&wg.handshakeAgeSeconds>=0?wg.handshakeAgeSeconds:null,
   routingService:['active','inactive','failed','activating','deactivating'].includes(wg.routingService)?wg.routingService:'unknown',
   policyRule:typeof wg.policyRule==='boolean'?wg.policyRule:null};
 }

@@ -24,12 +24,13 @@ class SystemStatusTests(unittest.TestCase):
     def test_permission_failure_is_unknown_without_breaking_other_checks(self):
         def reader(args):
             if args[0] == 'sudo':
-                raise subprocess.CalledProcessError(1, args)
+                raise subprocess.CalledProcessError(1, args, stderr='sudo: a password is required')
             if args[0] == 'systemctl':
                 return 'inactive\n'
             return '[{"fwmark":"0xc8","table":200}]'
         result = module.collect_system_status(reader, 1000)
         self.assertEqual(result['status'], 'unknown')
+        self.assertEqual(result['reason'], 'permission-required')
         self.assertEqual(result['routingService'], 'inactive')
         self.assertTrue(result['policyRule'])
 

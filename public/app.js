@@ -146,8 +146,8 @@ function wireguardState(){
  const handshake=wg?.handshakeAgeSeconds;
  const age=Number.isInteger(handshake)?(handshake<60?handshake+' Sekunden':Math.floor(handshake/60)<60?Math.floor(handshake/60)+' Minuten':Math.floor(handshake/3600)+' Stunden'):null;
  const stamp=wg?.checkedAt?new Date(wg.checkedAt).toLocaleTimeString('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit'}):'—';
- return {label:status==='connected'?'Verbunden':status==='idle'?'Kein aktueller Handshake':status==='no-handshake'?'Noch kein Handshake':status==='stale'?'Abfrage veraltet':'Nicht geprüft',
-  detail:(age?'Letzter Handshake vor '+age:'Handshake derzeit nicht abrufbar')+' · geprüft '+stamp+' Uhr',good:status==='connected'};
+ return {label:status==='connected'?'Verbunden':status==='idle'?'Kein aktueller Handshake':status==='no-handshake'?'Noch kein Handshake':status==='stale'?'Abfrage veraltet':wg?.reason==='permission-required'?'Leserecht fehlt':'Nicht geprüft',
+  detail:(age?'Letzter Handshake vor '+age:wg?.reason==='permission-required'?'Handshake-Abfrage benötigt eine einmalige Freigabe':'Handshake derzeit nicht abrufbar')+' · geprüft '+stamp+' Uhr',good:status==='connected'};
 }
 function settingsView(){
  const wg=wireguardState(),data=settingsState;
