@@ -9,6 +9,8 @@ try{
  const login=await fetch(base+'/api/login',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify({email:'desk',password:created.password,role:'admin',device:'800'})});
  assert.equal(login.status,200);const cookie=login.headers.get('set-cookie').split(';')[0];
  const headers={Cookie:cookie,Origin:base,'Content-Type':'application/json'};
+ fs.writeFileSync(path.join(dir,'browser-call-history.json'),JSON.stringify([{id:'own',accountId:created.user.id,startedAt:new Date().toISOString(),incoming:true,missed:true},{id:'private-other',accountId:'someone-else',startedAt:new Date().toISOString()}]));
+ const history=await (await fetch(base+'/api/phone/history?accountId=someone-else&device=800',{headers})).json();assert.deepEqual(history.calls.map(x=>x.id),['own']);
  const session=await (await fetch(base+'/api/session',{headers})).json();assert.equal(session.role,'phone');assert.equal(session.device,'801');assert.equal(session.company,PHONE_LINES[1]);
  for(const resource of ['/api/numbers','/api/settings','/api/settings/export','/api/calls','/api/pbx/status','/api/pbx/live','/api/pbx/hours','/api/phone/users'])assert.equal((await fetch(base+resource,{headers})).status,401,resource);
  assert.equal((await fetch(base+'/api/phone/status',{headers})).status,200);

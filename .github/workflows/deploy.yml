@@ -52,6 +52,7 @@ jobs:
           node tests/test-phone-accounts.mjs
           node tests/test-phone-authorization.mjs
           node tests/test-phone-service.mjs
+          node tests/test-phone-history.mjs
           node tests/test-phone-ui.mjs
           python3 -m unittest discover -s tests -p "test_*.py"
 

@@ -12,7 +12,7 @@ export function normalizePhoneTarget(raw){
  if(PHONE_LINES.includes('+49'+n.slice(1)))throw Error('Die eigene Firmennummer bitte über ein anderes Telefon testen.');
  return n;
 }
-export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=globalThis.WebSocket}){
+export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=globalThis.WebSocket,onCompleted=()=>{}}){
  const leases=new Map(),calls=new Map(),channelCalls=new Map();let eventSocket=null,ready=false,stopped=false,retry=null,config=null;
  const key=device=>String(device),encode=encodeURIComponent;
  function backendConfig(){if(config)return config;try{const c=JSON.parse(fs.readFileSync(path.join(root,'private/webphone-backend.json'),'utf8'));if(c.user!=='tariq-webphone'||! /^[a-f0-9]{64}$/.test(c.password))return null;return config=c}catch{return null}}
@@ -30,6 +30,7 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
  function notify(device){send(leases.get(key(device)))}
  async function end(call){
   if(!call||call.ending)return;call.ending=true;clearTimeout(call.timer);calls.delete(call.id);
+  try{onCompleted(call)}catch{console.error('Telefon-Anrufliste konnte nicht gespeichert werden.')}
   call.socket?.destroy();
   const resources=[...new Set([call.media,call.peer,call.pendingPeer].filter(Boolean))];
   for(const id of resources)channelCalls.delete(id);
@@ -47,6 +48,7 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
   if(!/^[a-f0-9-]{36}$/i.test(value?.value||''))throw Error('Audioverbindung konnte nicht vorbereitet werden.');
   call.mediaConnection=value.value;
  }
+ async function rememberLinked(call){try{const value=await ari('GET','channels/'+encode(call.peer)+'/variable',{variable:'CHANNEL(linkedid)'});if(typeof value?.value==='string')call.linkedId=value.value}catch{}}
  async function bridge(call){
   if(call.bridge||call.bridging||call.ending||!call.mediaStarted||!call.peerStarted)return;
   call.bridging=true;
@@ -58,20 +60,22 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
   const device=event.args?.[1];if(!PHONE_DEVICES.includes(device)){await ari('DELETE','channels/'+encode(event.channel.id));return}
   const lease=leases.get(device);
   if(!lease?.response||!isAlive(lease.sid,lease.identity)||ownCall({device})){
+   const account=device==='800'?{id:'admin',company:PHONE_LINES[0]}:accounts.list().find(a=>a.device===device&&a.enabled);
+   if(account){const raw=event.channel.caller?.number||'';const missed={id:randomBytes(16).toString('hex'),device,owner:account.id,company:account.company,peer:event.channel.id,from:/^\+?[0-9]{3,15}$/.test(raw)?raw:null,to:account.company,incoming:true,createdAt:new Date().toISOString()};await rememberLinked(missed);try{onCompleted(missed)}catch{console.error('Verpasster Telefonanruf konnte nicht gespeichert werden.')}}
    await ari('POST','channels/'+encode(event.channel.id)+'/continue',{context:'tariq-browser-incoming',extension:device,priority:2});return;
   }
   const account=lease.identity;let company=account.company;
   try{const dn=await ari('GET','channels/'+encode(event.channel.id)+'/variable',{variable:'MASTER_CHANNEL(CDR(dst))'});if(PHONE_LINES.includes(dn?.value))company=dn.value}catch{}
   const raw=event.channel.caller?.number||'';const from=/^\+?[0-9]{3,15}$/.test(raw)&&raw!==company?raw:null;
-  const call={id:randomBytes(16).toString('hex'),device,owner:account.accountId||'admin',sid:lease.sid,peer:event.channel.id,incoming:true,from,to:company,company,status:'ringing'};
-  calls.set(call.id,call);channelCalls.set(call.peer,call.id);call.timer=setTimeout(()=>void end(call),35000);notify(device);
+  const call={id:randomBytes(16).toString('hex'),device,owner:account.accountId||'admin',sid:lease.sid,peer:event.channel.id,incoming:true,from,to:company,company,status:'ringing',createdAt:new Date().toISOString()};
+  calls.set(call.id,call);channelCalls.set(call.peer,call.id);void rememberLinked(call);call.timer=setTimeout(()=>void end(call),35000);notify(device);
  }
  async function handleEvent(event){
   if(event.type==='StasisStart'){
    if(event.args?.[0]==='incoming'){await incoming(event);return}
    const call=calls.get(channelCalls.get(event.channel?.id));
    if(call&&event.channel.id===call.media){call.mediaStarted=true;await bridge(call)}
-   else if(call&&event.channel.id===call.pendingPeer){call.peer=event.channel.id;call.peerStarted=true;await bridge(call)}
+   else if(call&&event.channel.id===call.pendingPeer){call.peer=event.channel.id;call.peerStarted=true;await rememberLinked(call);await bridge(call)}
   }
   if(event.type==='StasisEnd'||event.type==='ChannelDestroyed'){
    const call=calls.get(channelCalls.get(event.channel?.id));if(call)void end(call);
@@ -103,7 +107,7 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
    if(ownCall({device:target}))throw Error('Telefon '+target+' führt gerade ein Gespräch.');
   }
 
-  const value={id:randomBytes(16).toString('hex'),device:identity.device,sid,owner:identity.accountId||'admin',incoming:false,from:['100','101','102',...PHONE_DEVICES].includes(target)?identity.device:company,to:target,company,status:'calling',test:target==='echo'};
+  const value={id:randomBytes(16).toString('hex'),device:identity.device,sid,owner:identity.accountId||'admin',incoming:false,from:['100','101','102',...PHONE_DEVICES].includes(target)?identity.device:company,to:target,company,status:'calling',test:target==='echo',createdAt:new Date().toISOString()};
   calls.set(value.id,value);value.timer=setTimeout(()=>void end(value),70000);
   try{
    await makeMedia(value);value.pendingPeer='tw-peer-'+value.id;channelCalls.set(value.pendingPeer,value.id);

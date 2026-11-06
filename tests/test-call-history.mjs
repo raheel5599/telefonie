@@ -10,7 +10,7 @@ let data={checkedAt:new Date(now).toISOString(),source:{available:true},calls:[
  {id:'missed',direction:'incoming',from:null,to:'+4960316843466',company:'+4960316843466',companyLabel:'TARIQ',startedAt,status:'missed',missed:true,billsec:0},
  {id:'outgoing',direction:'outgoing',from:'101',to:'+493012345678',company:'+4960316843466',companyLabel:'TARIQ',startedAt,status:'answered',missed:false,billsec:20},
 ]};
-const env=vm.createContext({fs:{readFileSync:()=>JSON.stringify(data)},path:{join:()=>''},storeDir:'/data',Date,
+const env=vm.createContext({phoneHistory:{all:()=>[]},fs:{readFileSync:()=>JSON.stringify(data)},path:{join:()=>''},storeDir:'/data',Date,
  readNumbers:()=>[{e164:'+4960316868187',label:'Fahrdienst Büro'}],
  allowedLines:['+4960316868187','+4960316843466','+4960316871811']});
 vm.runInContext(code,env);

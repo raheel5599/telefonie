@@ -1,4 +1,5 @@
 import {createPhoneAccounts,PHONE_LINES,PHONE_DEVICES} from './phone-accounts.mjs';
+import {createPhoneHistory} from './phone-history.mjs';
 import {createPhoneService} from './phone-service.mjs';
 import http from 'node:http';
 import {createSpeechService} from './speech.mjs';
@@ -20,7 +21,8 @@ const storeDir=process.env.DATA_DIR||path.join(root,'data');
 fs.mkdirSync(storeDir,{recursive:true,mode:0o700});
 const speech=createSpeechService(storeDir);
 const phoneAccounts=createPhoneAccounts(storeDir);
-const phoneService=createPhoneService({root,accounts:phoneAccounts,isAlive:(sid,identity)=>{const entry=sessions.get(sid);return !!entry&&entry.until>Date.now()&&(identity.role==='admin'?entry.role!=='phone':!!phoneAccounts.identity(entry))}});
+const phoneHistory=createPhoneHistory(storeDir);
+const phoneService=createPhoneService({root,accounts:phoneAccounts,onCompleted:phoneHistory.record,isAlive:(sid,identity)=>{const entry=sessions.get(sid);return !!entry&&entry.until>Date.now()&&(identity.role==='admin'?entry.role!=='phone':!!phoneAccounts.identity(entry))}});
 const numbersPath=path.join(storeDir,'numbers.json');
 function readStoredNumbers(){try{const data=JSON.parse(fs.readFileSync(numbersPath,'utf8'));return Array.isArray(data)?data:[]}catch(e){if(e.code==='ENOENT')return [];throw e}}
 const numberDefaults=[
@@ -209,6 +211,9 @@ function queueRouting(input,kind='routing'){
 
 function readInfrastructure(now=Date.now()){
  let data;try{data=JSON.parse(fs.readFileSync(path.join(storeDir,'pbx-status.json'),'utf8'))}catch{return {status:'unknown',checkedAt:null}}
+ const browserRows=phoneHistory.all();
+ const conversations=new Map();for(const row of browserRows){const id=row.conversationId||row.id;if(!conversations.has(id))conversations.set(id,{...row,id,extension:row.device});}
+ data.calls=[...conversations.values(),...(Array.isArray(data.calls)?data.calls:[]).filter(row=>!conversations.has(row.id))].sort((a,b)=>Date.parse(b.startedAt)-Date.parse(a.startedAt));
  const age=now-Date.parse(data.checkedAt),fresh=Number.isFinite(age)&&age>=-10000&&age<=150000;
  const wg=data.wireguard;
  if(!fresh||!wg)return {status:fresh?'unknown':'stale',checkedAt:data.checkedAt||null};
@@ -241,6 +246,9 @@ function queryCallHistory(params,now=Date.now()){
  const q=(params.get('q')||'').trim().slice(0,80),days=Number(dayValue);
  let data;
  try{data=JSON.parse(fs.readFileSync(path.join(storeDir,'call-history.json'),'utf8'))}catch{data={calls:[],source:{available:false,note:'Anrufliste wird vorbereitet.'}}}
+ const browserRows=phoneHistory.all();
+ const conversations=new Map();for(const row of browserRows){const id=row.conversationId||row.id;if(!conversations.has(id))conversations.set(id,{...row,id,extension:row.device});}
+ data.calls=[...conversations.values(),...(Array.isArray(data.calls)?data.calls:[]).filter(row=>!conversations.has(row.id))].sort((a,b)=>Date.parse(b.startedAt)-Date.parse(a.startedAt));
  const age=now-Date.parse(data.checkedAt),fresh=Number.isFinite(age)&&age>=-10000&&age<=180000;
  const source={...data.source,checkedAt:data.checkedAt||null,
   status:data.source?.available?(fresh?'connected':'stale'):'unavailable'};
@@ -359,6 +367,7 @@ const webServer=http.createServer(async(req,res)=>{
  if(pathname.startsWith('/api/phone/')){
   const identity=await sessionIdentity(req);if(!identity)return respond(res,401,{error:'Bitte erneut anmelden'});
   const sid=cookie(req);
+  if(pathname==='/api/phone/history'&&req.method==='GET'){try{return respond(res,200,phoneHistory.query(identity,new URL(req.url,'http://localhost').searchParams.get('filter')||'all'))}catch(e){return respond(res,400,{error:e.message})}}
   if(pathname==='/api/phone/directory'&&req.method==='GET')return respond(res,200,{devices:phoneService.devices()});
   if(pathname==='/api/phone/status'&&req.method==='GET')return respond(res,200,phoneService.state(identity));
   if(pathname==='/api/phone/events'&&req.method==='GET'){
