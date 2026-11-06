@@ -211,9 +211,6 @@ function queueRouting(input,kind='routing'){
 
 function readInfrastructure(now=Date.now()){
  let data;try{data=JSON.parse(fs.readFileSync(path.join(storeDir,'pbx-status.json'),'utf8'))}catch{return {status:'unknown',checkedAt:null}}
- const browserRows=phoneHistory.all();
- const conversations=new Map();for(const row of browserRows){const id=row.conversationId||row.id;if(!conversations.has(id))conversations.set(id,{...row,id,extension:row.device});}
- data.calls=[...conversations.values(),...(Array.isArray(data.calls)?data.calls:[]).filter(row=>!conversations.has(row.id))].sort((a,b)=>Date.parse(b.startedAt)-Date.parse(a.startedAt));
  const age=now-Date.parse(data.checkedAt),fresh=Number.isFinite(age)&&age>=-10000&&age<=150000;
  const wg=data.wireguard;
  if(!fresh||!wg)return {status:fresh?'unknown':'stale',checkedAt:data.checkedAt||null};
