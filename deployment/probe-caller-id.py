@@ -9,8 +9,8 @@ CONTAINER='tariq-telefonie-asterisk'
 HOST=ROOT/'asterisk/pjsip.conf'
 
 
-def run(args):
-    return subprocess.run(args,check=True,capture_output=True,text=True,timeout=20).stdout
+def run(args, **kwargs):
+    return subprocess.run(args,check=True,capture_output=True,text=True,timeout=20, **kwargs).stdout
 
 
 def cli(command):
@@ -50,22 +50,28 @@ def setup():
     if enabled(cli('pjsip show endpoint telekom')):
         print('Anruferkennung: Provider-ID bereits aktiviert.')
         return
-    original=HOST.read_text()
+    original_host=HOST.read_text()
     active=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'cat','/etc/asterisk/pjsip.conf'])
-    if original!=active:
-        raise ValueError('Host- und aktive SIP-Datei unterscheiden sich. Keine Änderung durchgeführt.')
-    updated=update_config(original)
+    updated=update_config(active)
     backup=ROOT/'private/caller-id-backups'/datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S-%f')
     backup.mkdir(parents=True,mode=0o700)
-    target=backup/'pjsip.conf';target.write_text(original);target.chmod(0o600)
+    for name,text in [('pjsip.host.conf',original_host),('pjsip.active.conf',active)]:
+        target=backup/name;target.write_text(text);target.chmod(0o600)
+    def write_active(text):
+        # Preserve the active bind-mounted inode, which may differ after an old deployment.
+        run(['docker','exec','-i','-u','0','-w','/',CONTAINER,'tee','/etc/asterisk/pjsip.conf'],input=text)
     try:
-        # Preserve the inode of the existing file bind mount.
+        # The running PBX is authoritative; retain its working auth and registrations.
         HOST.write_text(updated)
+        write_active(updated)
         cli('module reload res_pjsip.so')
         if not enabled(cli('pjsip show endpoint telekom')):
             raise ValueError('Provider-Anruferkennung konnte nicht bestätigt werden.')
+        if HOST.read_text()!=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'cat','/etc/asterisk/pjsip.conf']):
+            raise ValueError('Host- und aktive SIP-Datei konnten nicht synchronisiert werden.')
     except Exception:
-        HOST.write_text(original)
+        HOST.write_text(original_host)
+        write_active(active)
         cli('module reload res_pjsip.so')
         raise
     print('Anruferkennung: Provider-ID für den Telekom-Endpunkt aktiviert und bestätigt.')
@@ -73,17 +79,11 @@ def setup():
 
 
 HOST=pathlib.Path('/home/fpadmin/apps/telefonie/asterisk/pjsip.conf')
-original=HOST.read_text()
 active=run(['docker','exec','-u','asterisk','-w','/',CONTAINER,'cat','/etc/asterisk/pjsip.conf'])
-blocks=[]
-for block in re.split(r'(?=^[ \t]*\[)',original,flags=re.M):
- if not re.match(r'[ \t]*\[telekom\]',block):continue
- kind=re.findall(r'^[ \t]*type[ \t]*=[ \t]*(\w+)',block,re.M)
- contexts=re.findall(r'^[ \t]*context[ \t]*=[ \t]*([-\w]+)',block,re.M)
- blocks.append({'types':kind,'contextIsFromTelekom':'from-telekom' in contexts,'hasContext':bool(contexts),'inherited':bool(re.match(r'[ \t]*\[telekom\][ \t]*\(',block))})
-print('CONFIG_STRUCTURE '+str({'includes':bool(re.search(r'^[ \t]*#',original,re.M)),'telekomSections':blocks,'hostMatchesActive':original==active}))
 try:
- updated=update_config(original)
- print('CALLER_ID_PREFLIGHT writable='+str(__import__('os').access(HOST,__import__('os').W_OK))+' endpointPatchValid='+str('trust_id_inbound=yes' in updated))
+ updated=update_config(active)
+ can_write=subprocess.run(['docker','exec','-u','0','-w','/',CONTAINER,'test','-w','/etc/asterisk/pjsip.conf'],capture_output=True,timeout=10).returncode==0
+ print('ACTIVE_PREFLIGHT valid='+str(bool(updated))+' activeWritable='+str(can_write)+' hostWritable='+str(__import__('os').access(HOST,__import__('os').W_OK)))
 except ValueError as exc:
- print('CALLER_ID_PREFLIGHT '+str(exc))
+ print('ACTIVE_PREFLIGHT '+str(exc))
+ raise SystemExit(1)
