@@ -15,8 +15,8 @@ services:
       AMI_CONFIG: /run/secrets/ami.conf
       AMI_HOST: tariq-telefonie-asterisk
     restart: unless-stopped
-    mem_limit: 256m
-    pids_limit: 80
+    mem_limit: 768m
+    pids_limit: 128
     ports:
       - "127.0.0.1:3095:3095"
     security_opt:

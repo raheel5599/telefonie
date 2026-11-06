@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
+import {fileURLToPath} from 'node:url';
 
 export const speechLines=['+4960316868187','+4960316843466','+4960316871811'];
 export function cleanAnnouncementText(raw){
@@ -26,11 +27,11 @@ export function validateTelephoneWav(data){
  if(!format||format.codec!==1||format.channels!==1||format.rate!==8000||format.bits!==16||size===null||size<1600||size>1440000)throw Error('Die Ansage muss zwischen 0,1 und 90 Sekunden lang sein.');
  return {duration:size/16000};
 }
-function command(binary,args,input){
+function command(binary,args,input,timeout=30000){
  return new Promise((resolve,reject)=>{
   const child=spawn(binary,args,{stdio:['pipe','ignore','pipe']});
   let complete=false,stderr='';
-  const timer=setTimeout(()=>{child.kill('SIGKILL');finish(Error('Spracherzeugung hat zu lange gedauert.'))},30000);
+  const timer=setTimeout(()=>{child.kill('SIGKILL');finish(Error('Spracherzeugung hat zu lange gedauert.'))},timeout);
   function finish(error){if(complete)return;complete=true;clearTimeout(timer);error?reject(error):resolve()}
   child.stderr.on('data',c=>{stderr=(stderr+c.toString()).slice(-2048)});
   child.on('error',()=>finish(Error('Spracherzeugung ist derzeit nicht verfügbar.')));
@@ -68,11 +69,11 @@ export function createSpeechService(storeDir){
   busy=true;
   const id=randomBytes(16).toString('hex'),source=idPath(id,'.input.wav'),temp=idPath(id,'.tmp.wav');
   try{
-   await command('espeak-ng',['-v','de','-s','145','-w',source,'--stdin'],text);
-   await command('sox',[source,'-r','8000','-c','1','-b','16','-e','signed-integer',temp]);
+   await command(process.env.PIPER_PYTHON||'/opt/piper/bin/python',[fileURLToPath(new URL('./deployment/synthesize.py',import.meta.url)),source],text,90000);
+   await command('sox',[source,'-r','8000','-c','1','-b','16','-e','signed-integer',temp,'gain','-n','-3']);
    const audio=validateTelephoneWav(fs.readFileSync(temp));
    fs.renameSync(temp,idPath(id,'.wav'));fs.chmodSync(idPath(id,'.wav'),0o600);
-   const value={id,line,text,duration:audio.duration,createdAt:new Date().toISOString()};
+   const value={id,line,text,duration:audio.duration,voice:'piper-de-thorsten-high-v1',createdAt:new Date().toISOString()};
    fs.writeFileSync(idPath(id,'.json'),JSON.stringify(value),{mode:0o600});
    const target=path.join(dir,'latest-'+i+'.json');
    fs.writeFileSync(target+'.tmp',JSON.stringify({id}),{mode:0o600});fs.renameSync(target+'.tmp',target);

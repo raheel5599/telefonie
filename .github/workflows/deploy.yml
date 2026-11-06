@@ -60,7 +60,12 @@ jobs:
       - name: Deutsche Standardansagen erstellen
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq espeak-ng sox
+          sudo apt-get install -y -qq python3-venv sox
+          python3 -m venv /tmp/telefonie-voice
+          /tmp/telefonie-voice/bin/pip install -q piper-tts==1.8.0
+          export PIPER_PYTHON=/tmp/telefonie-voice/bin/python
+          export PIPER_VOICE_DIR=/tmp/telefonie-voice-model
+          python3 deployment/install-voice.py
           python3 deployment/build-announcements.py
           python3 deployment/build-browser-announcement.py
 
@@ -118,6 +123,7 @@ jobs:
               docker exec -i -u asterisk -w / tariq-telefonie-asterisk tee "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav.tmp" < "public/audio/tariq-closed-$i.wav" > /dev/null
               docker exec -u asterisk -w / tariq-telefonie-asterisk mv "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav.tmp" "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav"
             done
+            docker exec -w /app tariq-telefonie-telefonie-web-1 node deployment/check-speech.mjs
             docker exec -w /app tariq-telefonie-telefonie-web-1 node deployment/check-webphone.mjs
             python3 deployment/collect-pbx-status.py --install-cron
 
