@@ -1,0 +1,25 @@
+name: Telefonie Systemdiagnose prüfen
+on:
+  push:
+    branches: ['diagnostics/system-status-20261106']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH vorbereiten
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          test -n "$SSH_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "167.233.32.243 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEADJodfCjGq6bZaB1vjOJ7z4va3a+LmWE7p53NRF2KP" > ~/.ssh/known_hosts
+      - name: Systemdiagnose lesend prüfen
+        run: ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 'python3 -' < deployment/probe-system-status.py
