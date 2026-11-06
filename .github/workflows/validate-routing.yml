@@ -22,6 +22,7 @@ jobs:
           node tests/test-call-history.mjs
           node tests/test-number-profiles.mjs
           node tests/test-settings.mjs
+          node tests/test-target-availability.mjs
 
       - name: Ansagenformat prüfen
         run: |

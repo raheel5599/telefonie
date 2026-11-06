@@ -31,6 +31,18 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(row['billsec'],20)
         self.assertFalse(row['missed'])
 
+    def test_wrong_self_number_is_not_displayed_as_caller(self):
+        row=history.conversations([history.normalized_record(raw(src=history.LINES[0]))])[0]
+        self.assertIsNone(row['from'])
+        self.assertEqual(row['callerIdStatus'],'unconfirmed')
+        self.assertEqual(row['to'],history.LINES[0])
+
+    def test_failed_dial_without_created_target_is_unavailable(self):
+        row=history.conversations([history.normalized_record(raw(disposition='FAILED',dstchannel='',billsec=0))])[0]
+        self.assertEqual(row['failureReason'],'target-unavailable')
+        row=history.conversations([history.normalized_record(raw(disposition='BUSY',billsec=0))])[0]
+        self.assertIsNone(row['failureReason'])
+
     def test_missed_and_busy_are_not_answered(self):
         for disposition in ('NO ANSWER','BUSY','FAILED'):
             row=history.conversations([history.normalized_record(raw(disposition=disposition,billsec=0))])[0]

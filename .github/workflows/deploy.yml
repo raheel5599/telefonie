@@ -43,6 +43,7 @@ jobs:
           node tests/test-call-history.mjs
           node tests/test-number-profiles.mjs
           node tests/test-settings.mjs
+          node tests/test-target-availability.mjs
           python3 -m unittest discover -s tests -p "test_*.py"
 
 
@@ -80,6 +81,7 @@ jobs:
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes fpadmin@167.233.32.243 '
             set -eu
             cd /home/fpadmin/apps/telefonie
+            python3 deployment/setup-caller-id.py
             python3 deployment/setup-cdr.py
             docker compose -p tariq-telefonie -f compose.web.yml config -q
             docker compose -p tariq-telefonie -f compose.web.yml build --pull telefonie-web

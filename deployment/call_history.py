@@ -79,6 +79,7 @@ def normalized_record(raw):
             'direction':direction,'company':company,'extension':extension,'external':external,
             'duration':duration,'billsec':billsec,'disposition':disposition,
             'trunk':channel.startswith('PJSIP/telekom-'),
+            'targetUnavailable':incoming and disposition in ('FAILED','CONGESTION') and not peer and bool(re.fullmatch(r'PJSIP/(100|101|102),30',lastdata)),
             'announcement':str(raw.get('lastapp') or '')=='Playback' and
                 ('tariq-closed-' in lastdata or context.startswith('tariq-hours-'))}
 
@@ -112,9 +113,14 @@ def conversations(records):
         company=primary['company'] or next((r['company'] for r in legs if r['company']),None)
         start=min(r['start'] for r in legs)
         end=max(r['end'] for r in legs)
+        caller=primary['src']
+        caller_status='available' if caller else 'anonymous'
+        if direction=='incoming' and caller==primary['dst'] and caller in LINES:
+            caller=None
+            caller_status='unconfirmed'
         result.append({
             'id':hashlib.sha256(linked.encode()).hexdigest()[:24],
-            'direction':direction,'from':primary['src'],
+            'direction':direction,'from':caller,'callerIdStatus':caller_status,
             'to':primary['dst'] if direction=='incoming' else external or primary['dst'],
             'company':company,'companyLabel':LABELS.get(company,'Nicht zugeordnet'),
             'extension':primary['extension'],
@@ -122,6 +128,7 @@ def conversations(records):
             'startedAt':utc(start),'endedAt':utc(end),
             'duration':int(end-start),'billsec':max(r['billsec'] for r in legs),
             'status':status,'missed':direction=='incoming' and not answered,
+            'failureReason':'target-unavailable' if not answered and any(r.get('targetUnavailable') for r in legs) else None,
             'announcement':any(r['announcement'] for r in legs),
         })
     return sorted(result,key=lambda row:(row['startedAt'],row['id']),reverse=True)
