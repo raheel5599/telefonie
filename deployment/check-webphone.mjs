@@ -30,7 +30,7 @@ try{
   hold.select({accountId:'probe'},{mode:'music',track});const playback='probe-hold-'+track+'-'+tag;
   await ari('POST','bridges/'+bridgeId+'/play/'+playback,{media:hold.playback({accountId:'probe'})});
   await wait(()=>playbackStates.has(playback),'Wartemusik-Start nicht bestätigt.');
-  await new Promise(r=>setTimeout(r,200));if(playbackStates.get(playback)!=='playing')throw Error('Wartemusik konnte nicht abgespielt werden.');
+  await new Promise(r=>setTimeout(r,200));if(playbackStates.get(playback)!=='playing')throw Error('Wartemusik konnte nicht abgespielt werden: '+playbackStates.get(playback));
   await ari('DELETE','playbacks/'+playback);
  }
  if(signal!==heldSignal)throw Error('Audioisolation während des Haltens nicht bestätigt.');
