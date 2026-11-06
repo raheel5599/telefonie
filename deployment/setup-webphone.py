@@ -68,6 +68,11 @@ def patch_caddy(text):
         i+=1
     if depth:raise ValueError('Telefonie-Proxy ist unvollständig.')
     block=text[start:i]
+    if re.search(r'^\s*import security_headers\s*$',block,re.M):
+        snippet=re.search(r'^\(security_headers\)\s*\{(.*?)^\}',text,re.M|re.S)
+        if not snippet:raise ValueError('Sicherheitsheader-Vorlage fehlt.')
+        headers=re.sub(r'^[ \t]*Permissions-Policy[^\n]*\n','',snippet[1],flags=re.M).strip()
+        block=re.sub(r'^[ \t]*import security_headers[ \t]*$',lambda _:headers,block,flags=re.M)
     block=re.sub(r'^[ \t]*(?:header[ \t]+)?>?Permissions-Policy[^\n]*\n','',block,flags=re.M)
     block=block[:-1].rstrip()+'\n  header >Permissions-Policy "camera=(), microphone=(self), geolocation=()"\n}'
     return text[:start]+block+text[i:]

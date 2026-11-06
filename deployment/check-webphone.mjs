@@ -23,7 +23,7 @@ try{
  console.log('Browser-Telefonie: private Steuerung, Audio-WebSocket und Asterisk-Echo bestätigt.');
  const publicPage=await fetch('https://telefonie.tariq-itconsulting.de/',{method:'HEAD',signal:AbortSignal.timeout(10000)});
  const policy=publicPage.headers.get('permissions-policy')||'';
- if(publicPage.status!==200||!policy.includes('microphone=(self)')||policy.includes('microphone=()'))throw Error('Öffentliche Mikrofonfreigabe wurde nicht bestätigt.');
+ if(publicPage.status!==200||!policy.includes('microphone=(self)')||policy.includes('microphone=()'))throw Error('Öffentliche Mikrofonfreigabe wurde nicht bestätigt: '+policy);
  console.log('Telefonie-Mikrofonregel: auf der öffentlichen HTTPS-Seite bestätigt.');
 }finally{
  media?.close();for(const[type,id]of resources)await ari('DELETE',type+'/'+id).catch(()=>{});events?.close();
