@@ -6,7 +6,7 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tariq-service-'));fs.mkdirSync(
 class Socket extends EventTarget{constructor(){super();Socket.current=this;queueMicrotask(()=>this.dispatchEvent(new Event('open')))}close(){}}
 const requests=[];
 const fetcher=async(url,options)=>{requests.push({url:new URL(url),options});return {ok:true,status:options.method==='DELETE'?204:200,json:async()=>String(url).includes('/variable')?{value:'12345678-1234-1234-1234-123456789012'}:{id:'fixture'}}};
-const service=createPhoneService({root,accounts:{list:()=>[{device:'801',name:'One',enabled:true},{device:'802',name:'Two',enabled:true},{device:'803',name:'Offline',enabled:true},{device:'804',name:'Disabled',enabled:false}]},isAlive:()=>true,fetcher,Socket});
+const service=createPhoneService({root,accounts:{list:()=>[{device:'801',name:'One',enabled:true},{device:'802',name:'Two',enabled:true},{device:'803',name:'Offline',enabled:true},{device:'804',name:'Disabled',enabled:false}]},isAlive:()=>true,fetcher,Socket,holdMedia:{playback:()=>'sound:http://web/internal/fixture.wav'}});
 const one={role:'phone',accountId:'one',device:'801',company:'+4960316843466',name:'One'},two={role:'phone',accountId:'two',device:'802',company:'+4960316871811',name:'Two'};
 const response=()=>Object.assign(new EventEmitter(),{destroyed:false,writeHead(){},write(){},end(){this.destroyed=true;this.emit('close')}});
 try{
@@ -37,7 +37,26 @@ try{
  Socket.current.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'StasisStart',channel:{id:'tw-media-'+internal.id}})}));
  Socket.current.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'StasisStart',args:['outgoing',internal.id],channel:{id:request.url.searchParams.get('channelId')}})}));
  await new Promise(r=>setImmediate(r));assert.equal(service.state(one).currentCall.status,'active');
- await service.hangup(one,internal.id);await service.hangup(two,ringing.id);
+ await assert.rejects(service.hold(two,'sid-two',internal.id));
+ const held=await service.hold(one,'sid-one',internal.id);assert.equal(held.status,'held');
+ const detached=requests.filter(r=>r.url.pathname.endsWith('/removeChannel')).at(-1);assert.equal(detached.url.searchParams.get('channel'),'tw-media-'+internal.id);
+ assert(requests.some(r=>r.url.pathname.includes('/play/')&&r.url.searchParams.get('media')==='sound:http://web/internal/fixture.wav'));
+ const resumed=await service.resume(one,'sid-one',internal.id);assert.equal(resumed.status,'active');
+ await assert.rejects(service.transfer(two,'sid-two',internal.id,'100'));
+ await assert.rejects(service.transfer(one,'sid-one',internal.id,'09001234567'));
+ await assert.rejects(service.transfer(one,'sid-one',internal.id,'803'),/offline/);
+ const transfer=await service.transfer(one,'sid-one',internal.id,'100');assert.equal(transfer.status,'transferring');
+ const firstTarget=requests.filter(r=>r.url.pathname==='/ari/channels'&&r.options.method==='POST').at(-1).url.searchParams.get('channelId');
+ Socket.current.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'ChannelDestroyed',channel:{id:firstTarget}})}));
+ await new Promise(r=>setImmediate(r));assert.equal(service.state(one).currentCall.status,'active');
+ await service.transfer(one,'sid-one',internal.id,'101');const cancelledTarget=requests.filter(r=>r.url.pathname==='/ari/channels'&&r.options.method==='POST').at(-1).url.searchParams.get('channelId');
+ await service.resume(one,'sid-one',internal.id);assert.equal(service.state(one).currentCall.status,'active');assert(requests.some(r=>r.options.method==='DELETE'&&r.url.pathname.endsWith(cancelledTarget)));
+ await service.transfer(one,'sid-one',internal.id,'102');const finalTarget=requests.filter(r=>r.url.pathname==='/ari/channels'&&r.options.method==='POST').at(-1).url.searchParams.get('channelId');
+ Socket.current.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'StasisStart',args:['transfer',internal.id],channel:{id:finalTarget}})}));
+ await new Promise(r=>setImmediate(r));assert.equal(service.state(one).currentCall,null);assert(!requests.some(r=>r.options.method==='DELETE'&&r.url.pathname.endsWith(finalTarget)));
+ Socket.current.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'ChannelDestroyed',channel:{id:request.url.searchParams.get('channelId')}})}));
+ await new Promise(r=>setImmediate(r));assert(requests.some(r=>r.options.method==='DELETE'&&r.url.pathname.endsWith(finalTarget)));
+ await service.hangup(two,ringing.id);
  assert.throws(()=>service.events(two,'sid-two','bad-token',response()));
- console.log('Call ownership, protected media, assigned outbound caller ID and strict dial targets passed.');
+ console.log('Call ownership, protected media, assigned outbound caller ID and strict dial targets, hold isolation, transfer success, cancellation and no-answer recovery passed.');
 }finally{service.stop();fs.rmSync(root,{recursive:true,force:true})}

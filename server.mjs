@@ -1,4 +1,5 @@
 import {createPhoneAccounts,PHONE_LINES,PHONE_DEVICES} from './phone-accounts.mjs';
+import {createHoldMedia} from './hold-media.mjs';
 import {createPhoneHistory} from './phone-history.mjs';
 import {createPhoneService} from './phone-service.mjs';
 import http from 'node:http';
@@ -22,7 +23,8 @@ fs.mkdirSync(storeDir,{recursive:true,mode:0o700});
 const speech=createSpeechService(storeDir);
 const phoneAccounts=createPhoneAccounts(storeDir);
 const phoneHistory=createPhoneHistory(storeDir);
-const phoneService=createPhoneService({root,accounts:phoneAccounts,onCompleted:phoneHistory.record,isAlive:(sid,identity)=>{const entry=sessions.get(sid);return !!entry&&entry.until>Date.now()&&(identity.role==='admin'?entry.role!=='phone':!!phoneAccounts.identity(entry))}});
+const holdMedia=createHoldMedia({root,directory:storeDir});
+const phoneService=createPhoneService({root,holdMedia,accounts:phoneAccounts,onCompleted:phoneHistory.record,isAlive:(sid,identity)=>{const entry=sessions.get(sid);return !!entry&&entry.until>Date.now()&&(identity.role==='admin'?entry.role!=='phone':!!phoneAccounts.identity(entry))}});
 const numbersPath=path.join(storeDir,'numbers.json');
 function readStoredNumbers(){try{const data=JSON.parse(fs.readFileSync(numbersPath,'utf8'));return Array.isArray(data)?data:[]}catch(e){if(e.code==='ENOENT')return [];throw e}}
 const numberDefaults=[
@@ -320,6 +322,11 @@ function checkPost(req){const origin=process.env.APP_ORIGIN||'https://telefonie.
 const webServer=http.createServer(async(req,res)=>{
  const pathname=new URL(req.url||'/', 'http://localhost').pathname;
  try{
+ if(pathname.startsWith('/internal/hold-audio/')){
+  const match=/^\/internal\/hold-audio\/(music[123]|[a-f0-9]{32})\/([a-f0-9]{64})\.wav$/.exec(pathname),file=match&&holdMedia.resolve(match[1],match[2]);
+  if(!file||!['GET','HEAD'].includes(req.method)){res.writeHead(404).end();return}
+  try{const data=fs.readFileSync(file);res.writeHead(200,{'Content-Type':'audio/wav','Content-Length':data.length,'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'});res.end(req.method==='HEAD'?'':data)}catch{res.writeHead(404).end()}return;
+ }
  if(pathname==='/api/session'&&req.method==='GET'){const identity=await sessionIdentity(req);return respond(res,200,{authenticated:!!identity,...(identity||{}),email:identity?.role==='admin'?adminEmail:''})}
  if(pathname==='/api/login'&&req.method==='POST'){
   if(!checkPost(req))return respond(res,403,{error:'Ungültige Anfrage'});
@@ -364,6 +371,10 @@ const webServer=http.createServer(async(req,res)=>{
  if(pathname.startsWith('/api/phone/')){
   const identity=await sessionIdentity(req);if(!identity)return respond(res,401,{error:'Bitte erneut anmelden'});
   const sid=cookie(req);
+  if(pathname==='/api/phone/hold-settings'&&req.method==='GET')return respond(res,200,holdMedia.settings(identity));
+  if(pathname==='/api/phone/hold-preview'&&req.method==='GET'){
+   try{const data=fs.readFileSync(holdMedia.preview(identity));res.writeHead(200,{'Content-Type':'audio/wav','Content-Length':data.length,'Cache-Control':'no-store'});res.end(data)}catch{return respond(res,404,{error:'Warteaudio noch nicht bereit.'})}return;
+  }
   if(pathname==='/api/phone/history'&&req.method==='GET'){try{return respond(res,200,phoneHistory.query(identity,new URL(req.url,'http://localhost').searchParams.get('filter')||'all'))}catch(e){return respond(res,400,{error:e.message})}}
   if(pathname==='/api/phone/directory'&&req.method==='GET')return respond(res,200,{devices:phoneService.devices()});
   if(pathname==='/api/phone/status'&&req.method==='GET')return respond(res,200,phoneService.state(identity));
@@ -387,6 +398,13 @@ const webServer=http.createServer(async(req,res)=>{
    else if(pathname==='/api/phone/call')result=await phoneService.call(identity,sid,input);
    else if(pathname==='/api/phone/answer')result=await phoneService.answer(identity,sid,input.id);
    else if(pathname==='/api/phone/hangup')await phoneService.hangup(identity,input.id);
+   else if(pathname==='/api/phone/hold-settings'){result=holdMedia.select(identity,input);const call=phoneService.state(identity).currentCall;if(call?.status==='held')await phoneService.hold(identity,sid,call.id);}
+   else if(pathname==='/api/phone/hold-announcement'){
+    const key='hold-voice:'+identity.accountId,now=Date.now();if(now-(attempts.get(key)?.at||0)<30000)return respond(res,429,{error:'Bitte vor der nächsten Ansage 30 Sekunden warten.'});attempts.set(key,{at:now});result=await holdMedia.generate(identity,input.text);
+   }
+   else if(pathname==='/api/phone/hold')result=await phoneService.hold(identity,sid,input.id);
+   else if(pathname==='/api/phone/resume')result=await phoneService.resume(identity,sid,input.id);
+   else if(pathname==='/api/phone/transfer')result=await phoneService.transfer(identity,sid,input.id,input.target);
    else if(pathname==='/api/phone/dtmf')await phoneService.dtmf(identity,input.id,input.digit);
    else return respond(res,404,{error:'Nicht gefunden'});
    return respond(res,200,result);

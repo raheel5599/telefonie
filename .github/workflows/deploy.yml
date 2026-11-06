@@ -8,6 +8,7 @@ on:
       - 'server.mjs'
       - 'speech.mjs'
       - 'phone-*.mjs'
+      - 'hold-media.mjs'
       - '.dockerignore'
       - 'compose.web.yml'
       - '*.png'
@@ -38,6 +39,7 @@ jobs:
           node --check server.mjs
           node --check phone-accounts.mjs
           node --check phone-service.mjs
+          node --check hold-media.mjs
           node --check public/phone.js
           node --check public/phone-audio-worklet.js
           node --check public/app.js
@@ -52,6 +54,7 @@ jobs:
           node tests/test-phone-accounts.mjs
           node tests/test-phone-authorization.mjs
           node tests/test-phone-service.mjs
+          node tests/test-hold-media.mjs
           node tests/test-phone-history.mjs
           node tests/test-phone-ui.mjs
           python3 -m unittest discover -s tests -p "test_*.py"
@@ -68,6 +71,7 @@ jobs:
           python3 deployment/install-voice.py
           python3 deployment/build-announcements.py
           python3 deployment/build-browser-announcement.py
+          python3 deployment/build-hold-music.py
 
       - name: SSH-Zugang vorbereiten
         env:

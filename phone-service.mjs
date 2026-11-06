@@ -12,8 +12,8 @@ export function normalizePhoneTarget(raw){
  if(PHONE_LINES.includes('+49'+n.slice(1)))throw Error('Die eigene Firmennummer bitte über ein anderes Telefon testen.');
  return n;
 }
-export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=globalThis.WebSocket,onCompleted=()=>{}}){
- const leases=new Map(),calls=new Map(),channelCalls=new Map();let eventSocket=null,ready=false,stopped=false,retry=null,config=null;
+export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=globalThis.WebSocket,onCompleted=()=>{},holdMedia=null}){
+ const leases=new Map(),calls=new Map(),channelCalls=new Map(),relays=new Map();let eventSocket=null,ready=false,stopped=false,retry=null,config=null;
  const key=device=>String(device),encode=encodeURIComponent;
  function backendConfig(){if(config)return config;try{const c=JSON.parse(fs.readFileSync(path.join(root,'private/webphone-backend.json'),'utf8'));if(c.user!=='tariq-webphone'||! /^[a-f0-9]{64}$/.test(c.password))return null;return config=c}catch{return null}}
  async function ari(method,resource,params={},body){
@@ -24,15 +24,15 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
   return response.status===204?null:response.json();
  }
  const ownCall=identity=>[...calls.values()].find(c=>c.device===identity.device);
- function safeCall(c){return c?{id:c.id,from:c.from,to:c.to,company:c.company,status:c.status,incoming:c.incoming,startedAt:c.startedAt,test:c.test}:null}
+ function safeCall(c){return c?{id:c.id,from:c.from,to:c.to,company:c.company,status:c.status,incoming:c.incoming,startedAt:c.startedAt,test:c.test,notice:c.notice||null,transferTarget:c.transferTarget||null}:null}
  function state(identity){return {ready,online:!!leases.get(key(identity.device))?.response,device:identity.device,name:identity.name,company:identity.company,currentCall:safeCall(ownCall(identity))}}
  function send(lease){if(lease?.response&&!lease.response.destroyed)lease.response.write('event: state\ndata: '+JSON.stringify(state(lease.identity))+'\n\n')}
  function notify(device){send(leases.get(key(device)))}
  async function end(call){
-  if(!call||call.ending)return;call.ending=true;clearTimeout(call.timer);calls.delete(call.id);
+  if(!call||call.ending)return;call.ending=true;clearTimeout(call.timer);clearTimeout(call.transferTimer);calls.delete(call.id);await stopHold(call);
   try{onCompleted(call)}catch{console.error('Telefon-Anrufliste konnte nicht gespeichert werden.')}
   call.socket?.destroy();
-  const resources=[...new Set([call.media,call.peer,call.pendingPeer].filter(Boolean))];
+  const resources=[...new Set([call.media,call.peer,call.pendingPeer,call.transferPeer].filter(Boolean))];
   for(const id of resources)channelCalls.delete(id);
   await Promise.allSettled(resources.map(id=>ari('DELETE','channels/'+encode(id))));
   if(call.bridge)await ari('DELETE','bridges/'+encode(call.bridge)).catch(()=>{});
@@ -56,6 +56,45 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
   await ari('POST','bridges/'+id+'/addChannel',{channel:call.peer+','+call.media});
   call.status='active';call.startedAt=new Date().toISOString();clearTimeout(call.timer);call.timer=setTimeout(()=>void end(call),2*3600000);notify(call.device);
  }
+ async function stopHold(c){const playback=c.playback;c.playback=null;c.holdMedia=null;if(playback)await ari('DELETE','playbacks/'+encode(playback)).catch(()=>{})}
+ async function playHold(c){
+  if(c.ending||!['held','transferring'].includes(c.status)||!c.holdMedia||c.playback)return;
+  const id='tw-hold-'+randomBytes(12).toString('hex');c.playback=id;
+  try{await ari('POST','bridges/'+encode(c.bridge)+'/play/'+id,{media:c.holdMedia})}catch(e){if(c.playback===id)c.playback=null;throw e}
+ }
+ function controlled(identity,sid,id){requireLease(identity,sid);const c=ownCall(identity);if(!c||c.id!==id||!c.bridge||c.ending)throw Error('Keine aktive Verbindung.');if(c.controlBusy)throw Error('Bitte die laufende Aktion abwarten.');return c}
+ async function resumeCall(c){
+  const pending=c.transferPeer;c.transferPeer=null;c.transferTarget=null;clearTimeout(c.transferTimer);if(pending){channelCalls.delete(pending);await ari('DELETE','channels/'+encode(pending)).catch(()=>{})}
+  await stopHold(c);await ari('POST','bridges/'+encode(c.bridge)+'/addChannel',{channel:c.media});c.status='active';notify(c.device);
+ }
+ async function hold(identity,sid,id){
+  const c=controlled(identity,sid,id);if(!['active','held'].includes(c.status))throw Error('Das Gespräch kann gerade nicht gehalten werden.');
+  if(!holdMedia)throw Error('Warteaudio ist noch nicht bereit.');const media=holdMedia.playback(identity);c.controlBusy=true;c.notice=null;
+  try{if(c.status==='held')await stopHold(c);else await ari('POST','bridges/'+encode(c.bridge)+'/removeChannel',{channel:c.media});c.status='held';c.holdMedia=media;await playHold(c);notify(c.device);return safeCall(c)}
+  catch(e){await resumeCall(c).catch(()=>{});throw e}finally{c.controlBusy=false}
+ }
+ async function resume(identity,sid,id){const c=controlled(identity,sid,id);if(!['held','transferring'].includes(c.status))throw Error('Das Gespräch wird nicht gehalten.');c.controlBusy=true;try{await resumeCall(c);return safeCall(c)}finally{c.controlBusy=false}}
+ async function closeRelay(relay){if(!relays.delete(relay.id))return;clearTimeout(relay.timer);await Promise.allSettled(relay.channels.map(id=>ari('DELETE','channels/'+encode(id))));await ari('DELETE','bridges/'+encode(relay.bridge)).catch(()=>{})}
+ async function failedTransfer(c){if(c.ending||!c.transferPeer)return;c.notice='Vermittlung nicht zustande gekommen. Du bist wieder mit dem Anrufer verbunden.';await resumeCall(c).catch(()=>{c.status='held';notify(c.device)})}
+ async function finishTransfer(c){
+  if(c.ending||!c.transferPeer)return;c.controlBusy=true;
+  try{
+   await stopHold(c);await ari('POST','bridges/'+encode(c.bridge)+'/addChannel',{channel:c.transferPeer});
+   const relay={id:c.id,channels:[c.peer,c.transferPeer],bridge:c.bridge};relay.timer=setTimeout(()=>void closeRelay(relay),2*3600000);relay.timer.unref?.();relays.set(relay.id,relay);
+   for(const id of relay.channels)channelCalls.delete(id);
+   c.transferredTo=c.transferTarget;c.peer=null;c.pendingPeer=null;c.transferPeer=null;c.bridge=null;await end(c);
+  }catch{await failedTransfer(c)}finally{c.controlBusy=false}
+ }
+ async function transfer(identity,sid,id,raw){
+  const c=controlled(identity,sid,id);if(!['active','held'].includes(c.status)||c.test)throw Error('Dieses Gespräch kann nicht vermittelt werden.');
+  const target=normalizePhoneTarget(raw);if(target==='echo'||target===identity.device)throw Error('Bitte ein anderes Vermittlungsziel wählen.');
+  if(PHONE_DEVICES.includes(target)){const destination=devices().find(d=>d.id===target);if(!destination?.online)throw Error('Das Zieltelefon ist offline.');if(ownCall({device:target}))throw Error('Das Zieltelefon ist besetzt.');}
+  if(c.status==='active')await hold(identity,sid,id);
+  c.controlBusy=true;c.status='transferring';c.transferTarget=target;c.transferPeer='tw-transfer-'+randomBytes(16).toString('hex');channelCalls.set(c.transferPeer,c.id);
+  const endpoint=PHONE_DEVICES.includes(target)?'Local/'+target+'@tariq-browser-incoming/n':['100','101','102'].includes(target)?'PJSIP/'+target:'Local/'+target+'@tariq-browser-outbound/n';
+  try{await ari('POST','channels',{endpoint,app:APP,appArgs:'transfer,'+c.id,channelId:c.transferPeer,callerId:PHONE_DEVICES.includes(target)||['100','101','102'].includes(target)?(c.incoming?c.from:c.to)||identity.device:c.company,timeout:40},{variables:{__TARIQ_COMPANY:c.company}});if(!c.ending)c.transferTimer=setTimeout(()=>void failedTransfer(c),45000);notify(c.device);return c.ending?null:safeCall(c)}
+  catch(e){await failedTransfer(c);throw e}finally{c.controlBusy=false}
+ }
  async function incoming(event){
   const device=event.args?.[1];if(!PHONE_DEVICES.includes(device)){await ari('DELETE','channels/'+encode(event.channel.id));return}
   const lease=leases.get(device);
@@ -71,14 +110,20 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
   calls.set(call.id,call);channelCalls.set(call.peer,call.id);void rememberLinked(call);call.timer=setTimeout(()=>void end(call),35000);notify(device);
  }
  async function handleEvent(event){
+  if(event.type==='PlaybackFinished'){
+   const c=[...calls.values()].find(c=>c.playback===event.playback?.id);
+   if(c){c.playback=null;if(event.playback.state==='failed'){c.notice='Warteaudio konnte nicht abgespielt werden. Gespräch zurückgeholt.';await resumeCall(c)}else await playHold(c)}return;
+  }
   if(event.type==='StasisStart'){
    if(event.args?.[0]==='incoming'){await incoming(event);return}
    const call=calls.get(channelCalls.get(event.channel?.id));
-   if(call&&event.channel.id===call.media){call.mediaStarted=true;await bridge(call)}
+   if(call&&event.channel.id===call.transferPeer){await finishTransfer(call)}
+   else if(call&&event.channel.id===call.media){call.mediaStarted=true;await bridge(call)}
    else if(call&&event.channel.id===call.pendingPeer){call.peer=event.channel.id;call.peerStarted=true;await rememberLinked(call);await bridge(call)}
   }
   if(event.type==='StasisEnd'||event.type==='ChannelDestroyed'){
-   const call=calls.get(channelCalls.get(event.channel?.id));if(call)void end(call);
+   const call=calls.get(channelCalls.get(event.channel?.id));if(call&&event.channel.id===call.transferPeer){void failedTransfer(call);return}if(call)void end(call);
+   const relay=[...relays.values()].find(r=>r.channels.includes(event.channel?.id));if(relay)void closeRelay(relay);
   }
  }
  function connectBackend(){
@@ -87,7 +132,7 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
   const ws=new Socket(url,'ari');eventSocket=ws;
   ws.addEventListener('open',()=>{ready=true;for(const l of leases.values())send(l)});
   ws.addEventListener('message',e=>{try{const event=JSON.parse(String(e.data));void handleEvent(event).catch(()=>{})}catch{}});
-  const lost=()=>{if(eventSocket!==ws)return;eventSocket=null;ready=false;for(const c of calls.values())void end(c);for(const l of leases.values())send(l);if(!stopped){retry=setTimeout(connectBackend,3000);retry.unref?.()}};
+  const lost=()=>{if(eventSocket!==ws)return;eventSocket=null;ready=false;for(const c of calls.values())void end(c);for(const r of relays.values())void closeRelay(r);for(const l of leases.values())send(l);if(!stopped){retry=setTimeout(connectBackend,3000);retry.unref?.()}};
   ws.addEventListener('close',lost);ws.addEventListener('error',()=>{ws.close()});
  }
  const sweep=setInterval(()=>{for(const [device,l] of leases)if(!isAlive(l.sid,l.identity))closeLease(device);else send(l)},15000);sweep.unref?.();
@@ -129,5 +174,5 @@ export function createPhoneService({root,accounts,isAlive,fetcher=fetch,Socket=g
   upstream.on('upgrade',(response,other,otherHead)=>{socket.write('HTTP/1.1 101 Switching Protocols\r\n'+response.rawHeaders.reduce((s,v,i,a)=>i%2?s:s+v+': '+a[i+1]+'\r\n','')+'\r\n');if(head.length)other.write(head);if(otherHead.length)socket.write(otherHead);socket.pipe(other).pipe(socket);other.on('error',()=>socket.destroy());socket.on('close',()=>{other.destroy();void end(c)})});
   upstream.on('response',()=>{socket.destroy();void end(c)});upstream.on('error',()=>{socket.destroy();void end(c)});upstream.end();
  }
- return {state,connect,events,call,answer,hangup,dtmf,upgrade,devices,closeSession,revoke,ari,ready:()=>ready,stop:()=>{stopped=true;clearTimeout(retry);clearInterval(sweep);eventSocket?.close();for(const d of leases.keys())closeLease(d)}};
+ return {state,connect,events,call,answer,hangup,dtmf,hold,resume,transfer,upgrade,devices,closeSession,revoke,ari,ready:()=>ready,stop:()=>{stopped=true;clearTimeout(retry);clearInterval(sweep);eventSocket?.close();for(const d of leases.keys())closeLease(d);for(const r of relays.values())void closeRelay(r)}};
 }
