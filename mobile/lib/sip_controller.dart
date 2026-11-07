@@ -25,6 +25,7 @@ class SipPhoneController extends PhoneController implements sip.SipUaHelperListe
   List<Map<String,dynamic>> records = [];
   Future<void> historyWrites = Future.value();
   final recorded = <String>{};
+  final finishedCallIds = <String?>{};
   String selectedFilter = 'all', registration = 'Offline';
   void changed() { if (!disposed) notifyListeners(); }
 
@@ -154,6 +155,8 @@ class SipPhoneController extends PhoneController implements sip.SipUaHelperListe
         'missed':previous?['incoming']==true&&answered==null,
         'duration':answered==null?0:DateTime.now().difference(answered!).inSeconds});
     }
+    finishedCallIds.add(c.id);
+    if(finishedCallIds.length>1000)finishedCallIds.remove(finishedCallIds.first);
     active=null;state={...state,'currentCall':null};started=null;answered=null;currentHistoryId=null;muted=false;
     final oldRenderer=renderer;renderer=null;
     filterHistory();changed();
@@ -194,7 +197,7 @@ class SipPhoneController extends PhoneController implements sip.SipUaHelperListe
       return;
     }
     if(active==null){
-      if(!enabled || recorded.contains(c.id)){if(event.state==sip.CallStateEnum.CALL_INITIATION)c.hangup();return;}
+      if(!enabled || finishedCallIds.contains(c.id)){if(event.state==sip.CallStateEnum.CALL_INITIATION)c.hangup();return;}
       if(event.state!=sip.CallStateEnum.CALL_INITIATION)return;
       active=c;started=DateTime.now();answered=null;currentHistoryId='${c.id}-${started!.microsecondsSinceEpoch}';
       final incoming=c.direction==sip.Direction.incoming;

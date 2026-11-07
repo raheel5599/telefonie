@@ -24,7 +24,7 @@ class _SipAccountPageState extends State<SipAccountPage> {
     padding:const EdgeInsets.only(bottom:16),child:TextFormField(controller:fields[key],obscureText:secret,
       autocorrect:false,enableSuggestions:false,keyboardType:secret?TextInputType.visiblePassword:TextInputType.text,
       decoration:InputDecoration(labelText:label,hintText:hint),
-      validator:required?(v)=>v==null||v.trim().isEmpty?'Bitte ausfüllen.':null));
+      validator:required?((v)=>v==null||v.trim().isEmpty?'Bitte ausfüllen.':null):null));
   Future<void> save() async {
     if(form.currentState?.validate()!=true)return;
     setState((){saving=true;error='';});

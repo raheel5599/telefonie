@@ -13,7 +13,7 @@ void main(){
   });
   test('unsupported transport, endpoint credentials and SIP header injection rejected',(){
     for(final v in ['ws://sip.firma.de/ws','https://sip.firma.de/ws','wss://u:p@sip.firma.de/ws','wss://sip.firma.de/ws?secret=value','wss://sip.firma.de:0/ws']) {
-      expect(()=>SipProfile.parse({...fields(),'webSocketUrl':v}),throwsFormatException);
+      expect(()=>SipProfile.parse({...fields(),'webSocketUrl':v}),throwsFormatException,reason:v);
     }
     final p=SipProfile.parse(fields());
     for(final v in ['100\r\nX-Header: value','sip:100@other.de','100?Subject=x','100@other.de','']) {

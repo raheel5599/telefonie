@@ -31,7 +31,7 @@ class SipProfile {
       throw const FormatException('Ungültiger Authentifizierungsname.');
     }
     if (url == null || url.scheme != 'wss' || url.host.isEmpty ||
-        url.userInfo.isNotEmpty || url.hasFragment || url.hasQuery || (url.hasPort && (url.port < 1 || url.port > 65535))) {
+        url.userInfo.isNotEmpty || url.hasFragment || url.hasQuery || RegExp(r':0+(?:/|$)').hasMatch(clean('webSocketUrl')) || (url.hasPort && (url.port < 1 || url.port > 65535))) {
       throw const FormatException('Die vollständige WSS-Adresse der Telefonanlage eingeben, z. B. wss://sip.firma.de/ws.');
     }
     for (final key in ['stun', 'turn']) {
