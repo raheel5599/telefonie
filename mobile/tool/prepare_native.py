@@ -13,7 +13,7 @@ with Image.open(assets/'logo.png') as source:
 package=ROOT/'android/app/src/main/kotlin/de/tariqitconsulting/telefonie'
 package.mkdir(parents=True,exist_ok=True);shutil.copyfile(ROOT/'native/MainActivity.kt',package/'MainActivity.kt')
 manifest=ROOT/'android/app/src/main/AndroidManifest.xml';ns='http://schemas.android.com/apk/res/android';ET.register_namespace('android',ns);tree=ET.parse(manifest);doc=tree.getroot()
-for name in ['android.permission.INTERNET','android.permission.RECORD_AUDIO','android.permission.MODIFY_AUDIO_SETTINGS']:
+for name in ['android.permission.INTERNET','android.permission.RECORD_AUDIO','android.permission.MODIFY_AUDIO_SETTINGS','android.permission.ACCESS_NETWORK_STATE','android.permission.CHANGE_NETWORK_STATE']:
     if not any(x.get('{'+ns+'}name')==name for x in doc.findall('uses-permission')):ET.SubElement(doc,'uses-permission',{'{'+ns+'}name':name})
 application=doc.find('application');application.set('{'+ns+'}label','TARIQ Telefonie');application.set('{'+ns+'}allowBackup','false');application.set('{'+ns+'}usesCleartextTraffic','false');tree.write(manifest,encoding='utf-8',xml_declaration=True)
 gradle=ROOT/'android/app/build.gradle.kts'
@@ -35,3 +35,12 @@ if 'TariqAudioPlugin.register' not in source:
     source+='\n'+(ROOT/'native/TariqAudio.swift').read_text();appdelegate.write_text(source)
 (ROOT/'test/widget_test.dart').unlink(missing_ok=True)
 print('Native audio, microphone permission, TLS-only transport and TARIQ branding prepared.')
+
+# WebRTC native bindings must survive release shrinking.
+rules=ROOT/'android/app/proguard-rules.pro'
+with rules.open('a') as f:f.write('\n-keep class com.cloudwebrtc.webrtc.** { *; }\n-keep class org.webrtc.** { *; }\n')
+if gradle.is_file():
+    s=gradle.read_text()
+    if 'proguard-rules.pro' not in s:
+        s=s.replace('buildTypes {','buildTypes {\n        getByName("release") {\n            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")\n        }')
+        gradle.write_text(s)

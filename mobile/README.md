@@ -24,3 +24,29 @@ The Android test APK uses Flutter's generated debug signing key, even in release
 The iOS build is unsigned and cannot be installed on an iPhone as delivered. An Apple Developer team and provisioning/signing are required before TestFlight/device installation. No Apple or Google credentials are stored in the source. The microphone, routing and call lifecycle still require real Android and iPhone tests.
 
 Backend changes introduce /api/native/login and accept bearer sessions only for explicitly native-issued sessions. All existing ownership, company selection, Origin, CSRF and call control validation remains in effect. Web sessions do not expose tokens.
+
+
+## Own SIP account (0.2 test build)
+
+On the login screen choose **Eigenes SIP-Konto verwenden**. Enter the display name, SIP domain/registrar, SIP user/extension, optional distinct authentication user, password and full `wss://...` endpoint. Optional private STUN/TURN settings are provided by the PBX administrator. Nothing is prefilled with TARIQ/provider credentials. Tap save, then **Online gehen**; readiness is shown only after a successful SIP REGISTER.
+
+This is a separate direct SIP mode using sip_ua 1.1.0 / flutter_webrtc 1.2.0. **It requires WSS signalling and WebRTC DTLS/SRTP media on the PBX**. It is not a general Zoiper replacement for UDP/TCP SIP or legacy RTP, and does not register directly at Telekom's tel.t-online.de. Existing TARIQ 100–102 endpoints are legacy SIP endpoints, not accounts for this mode; the TARIQ-login path continues to use its existing authenticated gateway. No production Asterisk, firewall or Caddy changes are made by this app-only update.
+
+Credentials are stored only through FlutterSecureStorage. SIP debug logging is off, system certificate verification is enabled, and insecure WebSocket endpoints are rejected. SIP credentials are never sent to PhoneApi. STUN/TURN have no implicit public-server default. An incoming second call is rejected while one call is active.
+
+The same keypad offers incoming/outgoing voice, microphone mute, speaker, DTMF and SIP hold/resume. Hold music in this mode is supplied by the user's PBX. The three TARIQ tracks and synthesized text belong to the TARIQ backend and are not exposed as working options for external SIP accounts. SIP transfer and a shared directory are not yet enabled. The SIP password is managed on the PBX, not by the app.
+
+The SIP call history is local to this device, encrypted using OS secure storage, scoped by account/server, retained for 90 days / at most 500 calls. It does not sync with TARIQ administration or other devices. A saved account opens offline and must be explicitly connected. Foreground-only test restrictions apply to both connection modes.
+
+### Private Android testing
+
+The workflow builds a test-signed APK as a GitHub Actions artifact. Download the artifact ZIP, extract `app-release.apk`, copy it to the Android device, and allow installation from that trusted download source. This requires no Play upload and publishes nothing to a store. Rebuilt test keys may require uninstalling a previous test build (which deletes local data).
+
+For Play distribution use **Testing → Internal testing**, add only the chosen Google-account emails, upload a correctly release-signed Android App Bundle, and share the opt-in link. An internal test is not a public production rollout. The current APK is test-signed, not suitable for a production Play upload; persistent upload signing, Play Console app setup and owner credentials remain to be configured separately. No Play upload action or service-account secret is present in this repository.
+
+### Physical-device checklist
+
+1. Test the TARIQ login: online, call a free internal test phone, accept in both directions, verify two-way audio, mute, speaker, hold/music, return and transfer. Do not use emergency/premium numbers for testing.
+2. Test an own SIP account against an authorized WSS/WebRTC test PBX: correct REGISTER, deliberately wrong password, incoming/outgoing voice, caller ID, DTMF, hold/resume, second incoming call while busy, call history, logout/restart and network loss.
+3. Repeat on Wi-Fi and mobile data with the PBX's STUN/TURN configuration. Compilation and unit tests do not confirm media reachability or replace device tests.
+4. Background/terminated-app ringing remains a later native PushKit/CallKit / Android Telecom/FCM milestone.
