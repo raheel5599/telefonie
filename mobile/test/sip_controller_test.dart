@@ -35,11 +35,11 @@ void main(){
     expect(p.call?['status'],'active');
     p.callStateChanged(first,sip.CallState(sip.CallStateEnum.ENDED));
     await p.historyWrites;
-    expect(p.call,isNull);expect(p.calls,singleElement);
+    expect(p.call,isNull);expect(p.calls,hasLength(1));
     expect(p.calls.first['status'],'answered');expect(p.calls.first['missed'],false);
     expect(p.calls.first['from'],'+491701234567');
     p.callStateChanged(first,sip.CallState(sip.CallStateEnum.CALL_INITIATION));
-    expect(p.call,isNull);expect(p.calls,singleElement);
+    expect(p.call,isNull);expect(p.calls,hasLength(1));
     final stored=await SipPhoneController.storage.read(key:p.profile!.historyKey);
     expect(stored,contains('+491701234567'));expect(stored,isNot(contains('test-secret-only')));
     p.dispose();await Future<void>.delayed(Duration.zero);
