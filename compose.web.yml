@@ -1,5 +1,7 @@
+name: tariq-backend
 services:
   telefonie-web:
+    container_name: tariq-telefonie-telefonie-web-1
     image: tariq-telefonie-web:local
     build:
       context: .
@@ -27,10 +29,13 @@ services:
       - pbx_shared
 volumes:
   telefonie_data:
+    external: true
+    name: tariq-telefonie_telefonie_data
 
 networks:
   telefonie_web:
-    driver: bridge
+    external: true
+    name: tariq-telefonie_telefonie_web
   caddy_shared:
     external: true
     name: fahrschulpilot_web

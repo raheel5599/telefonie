@@ -104,23 +104,7 @@ jobs:
             python3 deployment/setup-caller-id.py
             python3 deployment/setup-webphone.py
             python3 deployment/setup-cdr.py
-            docker compose -p tariq-telefonie -f compose.web.yml config -q
-            docker compose -p tariq-telefonie -f compose.web.yml build --pull telefonie-web
-            docker compose -p tariq-telefonie -f compose.web.yml up -d --no-deps --force-recreate telefonie-web
-            ready=0
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do
-              if curl -fsS --max-time 3 http://127.0.0.1:3095/api/session >/dev/null 2>&1; then
-                ready=1
-                break
-              fi
-              sleep 2
-            done
-            if [ "$ready" -ne 1 ]; then
-              docker compose -p tariq-telefonie -f compose.web.yml ps
-              docker compose -p tariq-telefonie -f compose.web.yml logs --tail=60 telefonie-web
-              exit 1
-            fi
-            echo "Telefonie-Webdienst antwortet auf /api/session"
+            sh deployment/deploy-telefonie-backend.sh
             docker exec -u asterisk -w / tariq-telefonie-asterisk mkdir -p /var/lib/asterisk/sounds/custom
             for i in 1 2 3; do
               if docker exec -u asterisk -w / tariq-telefonie-asterisk test -s "/var/lib/asterisk/sounds/custom/tariq-closed-$i.wav"; then continue; fi
