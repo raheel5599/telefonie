@@ -40,10 +40,12 @@ try{
  await wait(()=>signal>resumed+500,'Audio nach Zurückholen nicht bestätigt.');
  console.log('Halten: alle drei Wartemusiken in Asterisk abgespielt; Audioisolation und Zurückholen bestätigt.');
 
- const publicPage=await fetch('https://telefonie.tariq-itconsulting.de/',{method:'HEAD',signal:AbortSignal.timeout(10000)});
- const policy=publicPage.headers.get('permissions-policy')||'';
- if(publicPage.status!==200||!policy.includes('microphone=(self)')||policy.includes('microphone=()'))throw Error('Öffentliche Mikrofonfreigabe wurde nicht bestätigt: '+policy);
- console.log('Telefonie-Mikrofonregel: auf der öffentlichen HTTPS-Seite bestätigt.');
+ const publicPage=await fetch('https://telefonie.tariq-itconsulting.de/',{signal:AbortSignal.timeout(10000)});
+ const publicMessage=await publicPage.text();
+ if (publicPage.status!==403 || !publicMessage.includes('Nur über TARIQ VPN erreichbar')) {
+   throw Error('VPN-Sperre für Telefonie nicht bestätigt: HTTP '+publicPage.status);
+ }
+ console.log('Telefonie: öffentlicher Zugriff durch die VPN-Regel gesperrt.');
 }finally{
  fs.rmSync(holdDirectory,{recursive:true,force:true});media?.close();for(const[type,id]of resources)await ari('DELETE',type+'/'+id).catch(()=>{});events?.close();
 }
